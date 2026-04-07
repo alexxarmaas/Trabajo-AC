@@ -197,8 +197,8 @@ export function stepPipeline(currentState) {
     } else {
       nextState.pipeline.ID_EX = {
         instruction: { ...instruction },
-        rs1Val: instruction.rs1 != null ? currentState.registers[instruction.rs1] : 0,
-        rs2Val: instruction.rs2 != null ? currentState.registers[instruction.rs2] : 0,
+        rs1Val: instruction.rs1 != null ? nextState.registers[instruction.rs1] : 0,
+        rs2Val: instruction.rs2 != null ? nextState.registers[instruction.rs2] : 0,
       };
     }
   }
