@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>RISC-V Pipeline Simulator</title>
+  <style>
+    :root {
+      color-scheme: light;
+      font-family: "Segoe UI", sans-serif;
+      background: #f5f7fb;
+      color: #1f2937;
+    }
+
+    body {
+      margin: 0;
+      padding: 24px;
+      background: linear-gradient(180deg, #f8fafc 0%, #eef2ff 100%);
+    }
+
+    .layout {
+      max-width: 1200px;
+      margin: 0 auto;
+      display: grid;
+      gap: 16px;
+    }
+
+    .card {
+      background: rgba(255, 255, 255, 0.9);
+      border: 1px solid #dbe2f0;
+      border-radius: 12px;
+      padding: 16px;
+      box-shadow: 0 8px 24px rgba(15, 23, 42, 0.06);
+    }
+
+    h1, h2 {
+      margin-top: 0;
+    }
+
+    textarea {
+      width: 100%;
+      min-height: 220px;
+      box-sizing: border-box;
+      font: 14px/1.4 "Consolas", "Courier New", monospace;
+      padding: 12px;
+      border: 1px solid #cbd5e1;
+      border-radius: 8px;
+      resize: vertical;
+    }
+
+    .controls {
+      display: flex;
+      gap: 12px;
+      margin-top: 12px;
+      flex-wrap: wrap;
+    }
+
+    button {
+      border: 0;
+      border-radius: 8px;
+      padding: 10px 14px;
+      cursor: pointer;
+      font-weight: 600;
+      background: #2563eb;
+      color: white;
+    }
+
+    button:hover {
+      background: #1d4ed8;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 16px;
+    }
+
+    .mono {
+      font: 13px/1.45 "Consolas", "Courier New", monospace;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+
+    th, td {
+      padding: 6px 8px;
+      border-bottom: 1px solid #e5e7eb;
+      text-align: left;
+      vertical-align: top;
+    }
+
+    .muted {
+      color: #64748b;
+    }
+  </style>
+</head>
+<body>
+  <div class="layout">
+    <div class="card">
+      <h1>Minimal RISC-V Pipeline Simulator</h1>
+      <textarea id="program-input">li t0, 5
+li t1, 10
+add t2, t0, t1
+lw t3, 0(t2)
+add t4, t3, t0
+sw t4, 4(t2)</textarea>
+      <div class="controls">
+        <button id="load-btn">Load Program</button>
+        <button id="step-btn">Step</button>
+      </div>
+    </div>
+
+    <div class="grid">
+      <div class="card">
+        <h2>CPU</h2>
+        <div id="cpu-summary" class="mono"></div>
+      </div>
+
+      <div class="card">
+        <h2>Pipeline</h2>
+        <div id="pipeline-view" class="mono"></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Registers</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Register</th>
+            <th>Value</th>
+          </tr>
+        </thead>
+        <tbody id="registers-body"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <script type="module" src="./main.js"></script>
+</body>
+</html>
