@@ -19,6 +19,7 @@ export function createCPU(program) {
       EX_MEM: null,
       MEM_WB: null,
     },
+    history: [],
     halted: false,
   };
 }

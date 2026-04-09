@@ -4,9 +4,13 @@ import { getRegisterName, parseProgram } from "./parser.js";
 const programInput = document.getElementById("program-input");
 const loadButton = document.getElementById("load-btn");
 const stepButton = document.getElementById("step-btn");
+const runButton = document.getElementById("run-btn");
 const cpuSummary = document.getElementById("cpu-summary");
 const pipelineView = document.getElementById("pipeline-view");
 const registersBody = document.getElementById("registers-body");
+const historyBody = document.getElementById("history-body");
+
+const MAX_RUN_CYCLES = 100;
 
 let cpuState = null;
 
@@ -83,10 +87,39 @@ function renderPipeline() {
   ].join("\n");
 }
 
+function renderHistory() {
+  historyBody.innerHTML = "";
+
+  cpuState.history.forEach((entry) => {
+    const row = document.createElement("tr");
+    const branchText = entry.branchTaken
+      ? `Yes${entry.branchTarget != null ? ` -> ${entry.branchTarget}` : ""}`
+      : "No";
+
+    row.innerHTML = `
+      <td>${entry.cycle}</td>
+      <td>${entry.pcBefore}</td>
+      <td>${entry.pcAfter}</td>
+      <td>${entry.ifInstr}</td>
+      <td>${entry.idInstr}</td>
+      <td>${entry.exInstr}</td>
+      <td>${entry.memInstr}</td>
+      <td>${entry.wbInstr}</td>
+      <td>${entry.stall ? "Yes" : "No"}</td>
+      <td>${branchText}</td>
+      <td>${entry.flush ? "Yes" : "No"}</td>
+      <td>${entry.wbWrite ?? ""}</td>
+    `;
+
+    historyBody.appendChild(row);
+  });
+}
+
 function render() {
   renderSummary();
   renderPipeline();
   renderRegisters();
+  renderHistory();
 }
 
 function loadCurrentProgram() {
@@ -111,5 +144,21 @@ stepButton.addEventListener("click", () => {
   cpuState = stepCPU(cpuState);
   render();
 });
+
+if (runButton) {
+  runButton.addEventListener("click", () => {
+    if (!cpuState) {
+      return;
+    }
+
+    let cycles = 0;
+    while (!cpuState.halted && cycles < MAX_RUN_CYCLES) {
+      cpuState = stepCPU(cpuState);
+      cycles += 1;
+    }
+
+    render();
+  });
+}
 
 loadCurrentProgram();

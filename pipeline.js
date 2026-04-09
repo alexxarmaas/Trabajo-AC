@@ -23,6 +23,7 @@ function cloneState(state) {
       EX_MEM: clonePipelineRegister(state.pipeline.EX_MEM),
       MEM_WB: clonePipelineRegister(state.pipeline.MEM_WB),
     },
+    history: state.history.map((entry) => ({ ...entry })),
     halted: state.halted,
   };
 }
@@ -76,6 +77,10 @@ function getInstructionAtPc(state, pc) {
   return state.instructionMemory[pc] ?? null;
 }
 
+function formatInstruction(instruction) {
+  return instruction?.raw ?? "(empty)";
+}
+
 function usesRegister(instruction, registerIndex) {
   if (!instruction || registerIndex == null || registerIndex === 0) {
     return false;
@@ -100,11 +105,20 @@ function usesRegister(instruction, registerIndex) {
 
 export function stepPipeline(currentState) {
   const nextState = cloneState(currentState);
+  const pcBefore = currentState.pc;
+  const fetchedInstruction = getInstructionAtPc(currentState, currentState.pc);
+  const ifInstr = formatInstruction(fetchedInstruction);
+  const idInstr = formatInstruction(currentState.pipeline.IF_ID?.instruction);
+  const exInstr = formatInstruction(currentState.pipeline.ID_EX?.instruction);
+  const memInstr = formatInstruction(currentState.pipeline.EX_MEM?.instruction);
+  const wbInstr = formatInstruction(currentState.pipeline.MEM_WB?.instruction);
   nextState.cycle += 1;
 
   let stall = false;
   let branchTaken = false;
   let branchTarget = null;
+  let flush = false;
+  let wbWrite = null;
 
   nextState.pipeline.IF_ID = null;
   nextState.pipeline.ID_EX = null;
@@ -115,7 +129,9 @@ export function stepPipeline(currentState) {
   if (wbRegister?.instruction && writesRegister(wbRegister.instruction.op)) {
     const rd = wbRegister.instruction.rd;
     if (rd != null && rd !== 0) {
-      nextState.registers[rd] = getWriteBackValue(wbRegister);
+      const value = getWriteBackValue(wbRegister);
+      nextState.registers[rd] = value;
+      wbWrite = `x${rd} = ${value}`;
     }
   }
 
@@ -183,6 +199,7 @@ export function stepPipeline(currentState) {
   const idRegister = currentState.pipeline.IF_ID;
   if (branchTaken) {
     nextState.pipeline.ID_EX = null;
+    flush = true;
   } else if (idRegister?.instruction) {
     const instruction = idRegister.instruction;
     const pendingLoad = currentState.pipeline.ID_EX?.instruction;
@@ -227,6 +244,21 @@ export function stepPipeline(currentState) {
     !nextState.pipeline.MEM_WB;
   const noInstructionToFetch = getInstructionAtPc(nextState, nextState.pc) == null;
   nextState.halted = pipelineEmpty && noInstructionToFetch;
+  nextState.history.push({
+    cycle: nextState.cycle,
+    pcBefore,
+    pcAfter: nextState.pc,
+    ifInstr: stall || branchTaken ? "(empty)" : ifInstr,
+    idInstr,
+    exInstr,
+    memInstr,
+    wbInstr,
+    stall,
+    branchTaken,
+    branchTarget,
+    flush,
+    wbWrite,
+  });
 
   return nextState;
 }

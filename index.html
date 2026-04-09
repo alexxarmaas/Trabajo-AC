@@ -112,6 +112,7 @@ sw t4, 4(t2)</textarea>
       <div class="controls">
         <button id="load-btn">Load Program</button>
         <button id="step-btn">Step</button>
+        <button id="run-btn">Run</button>
       </div>
     </div>
 
@@ -138,6 +139,31 @@ sw t4, 4(t2)</textarea>
         </thead>
         <tbody id="registers-body"></tbody>
       </table>
+    </div>
+
+    <div class="card">
+      <h2>Cycle History</h2>
+      <div style="overflow-x: auto;">
+        <table>
+          <thead>
+            <tr>
+              <th>Cycle</th>
+              <th>PC Before</th>
+              <th>PC After</th>
+              <th>IF</th>
+              <th>ID</th>
+              <th>EX</th>
+              <th>MEM</th>
+              <th>WB</th>
+              <th>Stall</th>
+              <th>Branch</th>
+              <th>Flush</th>
+              <th>WB Write</th>
+            </tr>
+          </thead>
+          <tbody id="history-body"></tbody>
+        </table>
+      </div>
     </div>
   </div>
 
