@@ -1,84 +1,361 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="es">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>RISC-V Pipeline Simulator</title>
+  <title>Simulador educativo de segmentacion RISC-V</title>
   <style>
     :root {
       color-scheme: light;
       font-family: "Segoe UI", sans-serif;
-      background: #f5f7fb;
-      color: #1f2937;
+      color: #162033;
+      background: #eef3fb;
+      --card: rgba(255, 255, 255, 0.92);
+      --border: #d8e1f0;
+      --shadow: 0 12px 30px rgba(15, 23, 42, 0.08);
+      --blue: #1d4ed8;
+      --blue-soft: #dbeafe;
+      --amber: #b45309;
+      --amber-soft: #fef3c7;
+      --red: #b91c1c;
+      --red-soft: #fee2e2;
+      --green: #166534;
+      --green-soft: #dcfce7;
+      --slate: #475569;
+      --slate-soft: #e2e8f0;
+    }
+
+    * {
+      box-sizing: border-box;
     }
 
     body {
       margin: 0;
       padding: 24px;
-      background: linear-gradient(180deg, #f8fafc 0%, #eef2ff 100%);
+      background:
+        radial-gradient(circle at top left, rgba(59, 130, 246, 0.16), transparent 28%),
+        radial-gradient(circle at top right, rgba(16, 185, 129, 0.12), transparent 24%),
+        linear-gradient(180deg, #f8fbff 0%, #eef3fb 100%);
     }
 
-    .layout {
-      max-width: 1200px;
+    .app {
+      max-width: 1450px;
       margin: 0 auto;
       display: grid;
-      gap: 16px;
+      gap: 18px;
     }
 
-    .card {
-      background: rgba(255, 255, 255, 0.9);
-      border: 1px solid #dbe2f0;
-      border-radius: 12px;
-      padding: 16px;
-      box-shadow: 0 8px 24px rgba(15, 23, 42, 0.06);
+    .hero {
+      background: linear-gradient(135deg, rgba(29, 78, 216, 0.08), rgba(255, 255, 255, 0.95));
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 24px;
+      box-shadow: var(--shadow);
     }
 
-    h1, h2 {
+    .hero h1 {
+      margin: 0 0 8px;
+      font-size: clamp(28px, 4vw, 40px);
+    }
+
+    .hero p {
+      margin: 0;
+      max-width: 760px;
+      color: var(--slate);
+      line-height: 1.5;
+    }
+
+    .top-layout {
+      display: grid;
+      grid-template-columns: minmax(340px, 420px) 1fr;
+      gap: 18px;
+      align-items: start;
+    }
+
+    .panel {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      padding: 18px;
+      box-shadow: var(--shadow);
+    }
+
+    .panel h2,
+    .panel h3 {
       margin-top: 0;
+      margin-bottom: 10px;
+    }
+
+    .section-text {
+      margin: 0 0 14px;
+      color: var(--slate);
+      line-height: 1.45;
+    }
+
+    .controls,
+    .scenario-controls {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-top: 12px;
     }
 
     textarea {
       width: 100%;
-      min-height: 220px;
-      box-sizing: border-box;
-      font: 14px/1.4 "Consolas", "Courier New", monospace;
-      padding: 12px;
-      border: 1px solid #cbd5e1;
-      border-radius: 8px;
+      min-height: 320px;
+      padding: 14px;
+      border-radius: 14px;
+      border: 1px solid #c7d2e6;
+      background: #f8fbff;
+      font: 14px/1.45 "Consolas", "Courier New", monospace;
       resize: vertical;
     }
 
-    .controls {
-      display: flex;
-      gap: 12px;
-      margin-top: 12px;
-      flex-wrap: wrap;
+    button,
+    select {
+      border-radius: 12px;
+      border: 1px solid #c7d2e6;
+      padding: 10px 14px;
+      font: inherit;
     }
 
     button {
-      border: 0;
-      border-radius: 8px;
-      padding: 10px 14px;
+      background: var(--blue);
+      color: white;
+      border-color: transparent;
       cursor: pointer;
       font-weight: 600;
-      background: #2563eb;
-      color: white;
     }
 
     button:hover {
-      background: #1d4ed8;
+      background: #1e40af;
     }
 
-    .grid {
+    .button-secondary {
+      background: white;
+      color: #1f2937;
+      border-color: #c7d2e6;
+    }
+
+    .button-secondary:hover {
+      background: #f8fafc;
+    }
+
+    select {
+      background: white;
+      color: #1f2937;
+      min-width: 210px;
+    }
+
+    .summary-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-      gap: 16px;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: 12px;
+      margin-bottom: 18px;
     }
 
-    .mono {
-      font: 13px/1.45 "Consolas", "Courier New", monospace;
+    .summary-card {
+      border-radius: 16px;
+      border: 1px solid #dbe4f3;
+      background: linear-gradient(180deg, #ffffff, #f8fbff);
+      padding: 14px;
+    }
+
+    .summary-card-label {
+      display: block;
+      color: var(--slate);
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 6px;
+    }
+
+    .summary-card-value {
+      font-size: 18px;
+      font-weight: 700;
+      line-height: 1.3;
+      word-break: break-word;
+    }
+
+    .event-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 10px;
+    }
+
+    .event-pill,
+    .mini-badge {
+      display: inline-flex;
+      align-items: center;
+      border-radius: 999px;
+      font-weight: 700;
+      font-size: 12px;
+    }
+
+    .event-pill {
+      padding: 7px 12px;
+      background: var(--slate-soft);
+      color: #334155;
+    }
+
+    .mini-badge {
+      padding: 4px 8px;
+    }
+
+    .event-stall,
+    .mini-stall {
+      background: var(--amber-soft);
+      color: var(--amber);
+    }
+
+    .event-forward,
+    .mini-forward {
+      background: var(--blue-soft);
+      color: var(--blue);
+    }
+
+    .event-branch,
+    .mini-branch {
+      background: var(--red-soft);
+      color: var(--red);
+    }
+
+    .event-write,
+    .mini-write {
+      background: var(--green-soft);
+      color: var(--green);
+    }
+
+    .analysis-grid {
+      display: grid;
+      gap: 18px;
+    }
+
+    .stage-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 14px;
+    }
+
+    .stage-card {
+      border: 1px solid #dbe4f3;
+      border-radius: 16px;
+      background: linear-gradient(180deg, #ffffff, #f9fbff);
+      padding: 14px;
+      min-height: 190px;
+    }
+
+    .stage-empty {
+      opacity: 0.8;
+    }
+
+    .stage-card-header {
+      display: flex;
+      gap: 10px;
+      justify-content: space-between;
+      align-items: flex-start;
+      margin-bottom: 10px;
+    }
+
+    .stage-card-header h3 {
+      margin: 0;
+      font-size: 18px;
+    }
+
+    .stage-tags {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+
+    .stage-instruction {
+      border-radius: 12px;
+      background: #f4f7fb;
+      padding: 12px;
+      min-height: 58px;
+      font: 14px/1.4 "Consolas", "Courier New", monospace;
+      margin-bottom: 12px;
       white-space: pre-wrap;
       word-break: break-word;
+    }
+
+    .stage-details {
+      display: grid;
+      gap: 8px;
+    }
+
+    .stage-detail {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      border-bottom: 1px solid #edf2f7;
+      padding-bottom: 6px;
+    }
+
+    .stage-label {
+      color: var(--slate);
+      font-weight: 600;
+    }
+
+    .stage-value {
+      font-weight: 700;
+    }
+
+    .stage-empty-text {
+      color: var(--slate);
+      font-style: italic;
+    }
+
+    .explanation-box {
+      border-radius: 16px;
+      border: 1px solid #dbe4f3;
+      background: linear-gradient(180deg, #ffffff, #f9fbff);
+      padding: 16px;
+      line-height: 1.6;
+      color: #1f2937;
+    }
+
+    details {
+      border-radius: 18px;
+      border: 1px solid var(--border);
+      background: var(--card);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+
+    details[open] {
+      padding-bottom: 12px;
+    }
+
+    summary {
+      list-style: none;
+      cursor: pointer;
+      padding: 16px 18px;
+      font-weight: 700;
+      border-bottom: 1px solid transparent;
+    }
+
+    details[open] summary {
+      border-bottom-color: var(--border);
+      margin-bottom: 12px;
+    }
+
+    summary::-webkit-details-marker {
+      display: none;
+    }
+
+    .details-content {
+      padding: 0 18px;
+    }
+
+    .table-wrap {
+      overflow: auto;
+      max-height: 420px;
+      border: 1px solid #dbe4f3;
+      border-radius: 14px;
+      background: white;
     }
 
     table {
@@ -87,84 +364,203 @@
       font-size: 13px;
     }
 
-    th, td {
-      padding: 6px 8px;
-      border-bottom: 1px solid #e5e7eb;
+    thead th {
+      position: sticky;
+      top: 0;
+      background: #eff5ff;
+      z-index: 1;
       text-align: left;
+      padding: 10px 8px;
+      border-bottom: 1px solid #dbe4f3;
+    }
+
+    td {
+      padding: 8px;
+      border-bottom: 1px solid #edf2f7;
       vertical-align: top;
     }
 
+    .mono {
+      font-family: "Consolas", "Courier New", monospace;
+    }
+
+    .row-active {
+      background: #f8fbff;
+    }
+
+    .row-written {
+      background: #ecfdf5;
+      font-weight: 700;
+    }
+
+    .history-stall {
+      background: #fffbeb;
+    }
+
+    .history-branch {
+      background: #fef2f2;
+    }
+
+    .history-write {
+      background: #f0fdf4;
+    }
+
+    .history-current {
+      outline: 2px solid #93c5fd;
+      outline-offset: -2px;
+    }
+
     .muted {
-      color: #64748b;
+      color: var(--slate);
+    }
+
+    @media (max-width: 1080px) {
+      .top-layout {
+        grid-template-columns: 1fr;
+      }
+
+      body {
+        padding: 16px;
+      }
     }
   </style>
 </head>
 <body>
-  <div class="layout">
-    <div class="card">
-      <h1>Minimal RISC-V Pipeline Simulator</h1>
-      <textarea id="program-input">li t0, 5
-li t1, 10
-add t2, t0, t1
-lw t3, 0(t2)
-add t4, t3, t0
-sw t4, 4(t2)</textarea>
-      <div class="controls">
-        <button id="load-btn">Load Program</button>
-        <button id="step-btn">Step</button>
-        <button id="run-btn">Run</button>
-      </div>
-    </div>
+  <div class="app">
+    <header class="hero">
+      <h1>Simulador educativo de segmentacion RISC-V</h1>
+      <p>Explora una CPU segmentada de 5 etapas ciclo a ciclo. Observa riesgos de datos, anticipacion de operandos, burbujas, saltos y vaciados del pipeline con una interfaz pensada para ensenar arquitectura de computadores.</p>
+    </header>
 
-    <div class="grid">
-      <div class="card">
-        <h2>CPU</h2>
-        <div id="cpu-summary" class="mono"></div>
-      </div>
+    <section class="top-layout">
+      <aside class="panel">
+        <h2>Programa y controles</h2>
+        <p class="section-text">Selecciona un escenario guiado o escribe tu propio codigo ensamblador. Despues carga el programa y avanza ciclo a ciclo.</p>
 
-      <div class="card">
-        <h2>Pipeline</h2>
-        <div id="pipeline-view" class="mono"></div>
-      </div>
-    </div>
+        <div class="scenario-controls">
+          <select id="scenario-select" aria-label="Escenario educativo"></select>
+          <button id="load-scenario-btn" class="button-secondary">Cargar escenario</button>
+        </div>
+        <p id="scenario-description" class="muted"></p>
 
-    <div class="card">
-      <h2>Registers</h2>
-      <table>
-        <thead>
-          <tr>
-            <th>Register</th>
-            <th>Value</th>
-          </tr>
-        </thead>
-        <tbody id="registers-body"></tbody>
-      </table>
-    </div>
+        <textarea id="program-input"></textarea>
 
-    <div class="card">
-      <h2>Cycle History</h2>
-      <div style="overflow-x: auto;">
-        <table>
-          <thead>
-            <tr>
-              <th>Cycle</th>
-              <th>PC Before</th>
-              <th>PC After</th>
-              <th>IF</th>
-              <th>ID</th>
-              <th>EX</th>
-              <th>MEM</th>
-              <th>WB</th>
-              <th>Stall</th>
-              <th>Branch</th>
-              <th>Flush</th>
-              <th>WB Write</th>
-            </tr>
-          </thead>
-          <tbody id="history-body"></tbody>
-        </table>
-      </div>
-    </div>
+        <div class="controls">
+          <button id="load-btn">Cargar programa</button>
+          <button id="reset-btn" class="button-secondary">Reiniciar</button>
+          <button id="step-btn" class="button-secondary">Avanzar 1 ciclo</button>
+          <button id="run-btn">Ejecutar</button>
+          <button id="run-to-end-btn" class="button-secondary">Ejecutar hasta el final</button>
+        </div>
+      </aside>
+
+      <section class="panel">
+        <h2>Resumen de ejecucion</h2>
+        <div class="summary-grid">
+          <div class="summary-card">
+            <span class="summary-card-label">Ciclo actual</span>
+            <div id="summary-cycle" class="summary-card-value">0</div>
+          </div>
+          <div class="summary-card">
+            <span class="summary-card-label">PC</span>
+            <div id="summary-pc" class="summary-card-value">0</div>
+          </div>
+          <div class="summary-card">
+            <span class="summary-card-label">Proxima instruccion</span>
+            <div id="summary-next" class="summary-card-value mono">-</div>
+          </div>
+          <div class="summary-card">
+            <span class="summary-card-label">Estado</span>
+            <div id="summary-status" class="summary-card-value">Listo</div>
+          </div>
+          <div class="summary-card">
+            <span class="summary-card-label">Ultimo evento relevante</span>
+            <div id="summary-event" class="summary-card-value">Sin eventos</div>
+          </div>
+          <div class="summary-card">
+            <span class="summary-card-label">Memoria inicializada</span>
+            <div id="summary-memory" class="summary-card-value">0 posicion(es)</div>
+          </div>
+        </div>
+
+        <h3>Eventos destacados</h3>
+        <div id="event-badges" class="event-list"></div>
+      </section>
+    </section>
+
+    <section class="analysis-grid">
+      <section class="panel">
+        <h2>Segmentacion</h2>
+        <p class="section-text">Cada tarjeta representa el contenido actual de un registro entre etapas del pipeline.</p>
+        <div id="stage-grid" class="stage-grid"></div>
+      </section>
+
+      <section class="panel">
+        <h2>Explicacion del ciclo actual</h2>
+        <div id="explanation-panel" class="explanation-box"></div>
+      </section>
+
+      <details open>
+        <summary>Registros</summary>
+        <div class="details-content">
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Registro</th>
+                  <th>Valor</th>
+                </tr>
+              </thead>
+              <tbody id="registers-body"></tbody>
+            </table>
+          </div>
+        </div>
+      </details>
+
+      <details open>
+        <summary>Memoria</summary>
+        <div class="details-content">
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Direccion</th>
+                  <th>Valor</th>
+                </tr>
+              </thead>
+              <tbody id="memory-body"></tbody>
+            </table>
+          </div>
+        </div>
+      </details>
+
+      <details open>
+        <summary>Historial por ciclos</summary>
+        <div class="details-content">
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Ciclo</th>
+                  <th>PC antes</th>
+                  <th>PC despues</th>
+                  <th>IF</th>
+                  <th>ID</th>
+                  <th>EX</th>
+                  <th>MEM</th>
+                  <th>WB</th>
+                  <th>Stall</th>
+                  <th>Salto</th>
+                  <th>Vaciado</th>
+                  <th>Escritura en WB</th>
+                </tr>
+              </thead>
+              <tbody id="history-body"></tbody>
+            </table>
+          </div>
+        </div>
+      </details>
+    </section>
   </div>
 
   <script type="module" src="./main.js"></script>

@@ -34,6 +34,8 @@ const REGISTER_ALIASES = {
   t6: 31,
 };
 
+const DATA_BASE_ADDRESS = 1000;
+
 function normalizeLine(line) {
   return line.split("#")[0].trim();
 }
@@ -72,6 +74,14 @@ function parseOffsetAddress(operand) {
   };
 }
 
+function parseWordValues(valueText) {
+  return valueText
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .map((item) => parseImmediate(item));
+}
+
 export function getRegisterName(index) {
   const aliases = [
     "zero", "ra", "sp", "gp", "tp", "t0", "t1", "t2",
@@ -84,33 +94,69 @@ export function getRegisterName(index) {
 
 export function parseProgram(source) {
   const lines = source.split(/\r?\n/);
-  const labels = new Map();
+  const textLabels = new Map();
+  const dataLabels = {};
+  const dataMemory = {};
   const cleanedLines = [];
 
-  let address = 0;
+  let currentSection = "text";
+  let textAddress = 0;
+  let dataAddress = DATA_BASE_ADDRESS;
+
   for (const line of lines) {
     const normalized = normalizeLine(line);
     if (!normalized) {
       continue;
     }
 
-    if (normalized.includes(":")) {
+    if (normalized === ".data") {
+      currentSection = "data";
+      continue;
+    }
+
+    if (normalized === ".text") {
+      currentSection = "text";
+      continue;
+    }
+
+    if (currentSection === "data") {
       const [labelPart, ...rest] = normalized.split(":");
+      if (!rest.length) {
+        throw new Error(`Data declaration requires a label: ${normalized}`);
+      }
+
       const label = labelPart.trim();
-      labels.set(label, address);
-      const remainder = rest.join(":").trim();
-      if (remainder) {
-        cleanedLines.push({ raw: remainder, address });
-        address += 4;
+      const declaration = rest.join(":").trim();
+      if (!declaration.startsWith(".word")) {
+        throw new Error(`Unsupported data directive: ${declaration}`);
+      }
+
+      const values = parseWordValues(declaration.slice(".word".length).trim());
+      dataLabels[label] = dataAddress;
+      for (const value of values) {
+        dataMemory[dataAddress] = value;
+        dataAddress += 4;
       }
       continue;
     }
 
-    cleanedLines.push({ raw: normalized, address });
-    address += 4;
+    if (normalized.includes(":")) {
+      const [labelPart, ...rest] = normalized.split(":");
+      const label = labelPart.trim();
+      textLabels.set(label, textAddress);
+      const remainder = rest.join(":").trim();
+      if (remainder) {
+        cleanedLines.push({ raw: remainder, address: textAddress });
+        textAddress += 4;
+      }
+      continue;
+    }
+
+    cleanedLines.push({ raw: normalized, address: textAddress });
+    textAddress += 4;
   }
 
-  return cleanedLines.map(({ raw, address: instructionAddress }) => {
+  const program = cleanedLines.map(({ raw, address: instructionAddress }) => {
     const [opToken, ...operandTokens] = raw.split(/\s+/);
     const op = opToken.toLowerCase();
     const operands = operandTokens.join(" ").split(",").map((item) => item.trim()).filter(Boolean);
@@ -169,7 +215,7 @@ export function parseProgram(source) {
       }
       case "beq": {
         const label = operands[2];
-        if (!labels.has(label)) {
+        if (!textLabels.has(label)) {
           throw new Error(`Unknown label: ${label}`);
         }
 
@@ -179,7 +225,7 @@ export function parseProgram(source) {
           rd: null,
           rs1: parseRegister(operands[0]),
           rs2: parseRegister(operands[1]),
-          imm: labels.get(label) - instructionAddress,
+          imm: textLabels.get(label) - instructionAddress,
           address: instructionAddress,
           raw,
         };
@@ -195,8 +241,32 @@ export function parseProgram(source) {
           address: instructionAddress,
           raw,
         };
+      case "la": {
+        const label = operands[1];
+        if (!(label in dataLabels)) {
+          throw new Error(`Unknown data label: ${label}`);
+        }
+
+        return {
+          type: "PSEUDO",
+          op: "la",
+          rd: parseRegister(operands[0]),
+          rs1: null,
+          rs2: null,
+          imm: null,
+          label,
+          address: instructionAddress,
+          raw,
+        };
+      }
       default:
         throw new Error(`Unsupported instruction: ${op}`);
     }
   });
+
+  return {
+    program,
+    dataLabels,
+    dataMemory,
+  };
 }

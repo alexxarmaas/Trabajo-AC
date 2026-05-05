@@ -17,6 +17,7 @@ function cloneState(state) {
     instructionMemory: { ...state.instructionMemory },
     registers: [...state.registers],
     memory: { ...state.memory },
+    dataLabels: { ...state.dataLabels },
     pipeline: {
       IF_ID: clonePipelineRegister(state.pipeline.IF_ID),
       ID_EX: clonePipelineRegister(state.pipeline.ID_EX),
@@ -29,7 +30,7 @@ function cloneState(state) {
 }
 
 function writesRegister(op) {
-  return ["add", "sub", "and", "or", "addi", "lw"].includes(op);
+  return ["add", "sub", "and", "or", "addi", "lw", "la"].includes(op);
 }
 
 function getWriteBackValue(register) {
@@ -176,6 +177,9 @@ export function stepPipeline(currentState) {
         break;
       case "addi":
         exMem.aluResult = operandA + instruction.imm;
+        break;
+      case "la":
+        exMem.aluResult = currentState.dataLabels[instruction.label] ?? 0;
         break;
       case "lw":
       case "sw":

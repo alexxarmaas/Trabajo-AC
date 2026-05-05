@@ -1,6 +1,7 @@
 import { stepPipeline } from "./pipeline.js";
 
-export function createCPU(program) {
+export function createCPU(program, options = {}) {
+  const { dataLabels = {}, dataMemory = {} } = options;
   const instructionMemory = {};
   for (const instruction of program) {
     instructionMemory[instruction.address] = { ...instruction };
@@ -12,7 +13,8 @@ export function createCPU(program) {
     program: program.map((instruction) => ({ ...instruction })),
     instructionMemory,
     registers: new Array(32).fill(0),
-    memory: {},
+    memory: { ...dataMemory },
+    dataLabels: { ...dataLabels },
     pipeline: {
       IF_ID: null,
       ID_EX: null,
@@ -24,9 +26,22 @@ export function createCPU(program) {
   };
 }
 
-export function loadProgram(program) {
-  const cpu = createCPU(program);
-  cpu.memory[15] = 20;
+export function loadProgram(parsedProgram) {
+  if (Array.isArray(parsedProgram)) {
+    const cpu = createCPU(parsedProgram);
+    cpu.memory[15] = 20;
+    return cpu;
+  }
+
+  const cpu = createCPU(parsedProgram.program ?? [], {
+    dataLabels: parsedProgram.dataLabels ?? {},
+    dataMemory: parsedProgram.dataMemory ?? {},
+  });
+
+  if (Object.keys(cpu.dataLabels).length === 0 && cpu.memory[15] == null) {
+    cpu.memory[15] = 20;
+  }
+
   return cpu;
 }
 
