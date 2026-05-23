@@ -12,7 +12,7 @@ export function createCPU(program, options = {}) {
     cycle: 0,
     program: program.map((instruction) => ({ ...instruction })),
     instructionMemory,
-    registers: new Array(32).fill(0),
+    registers: new Array(32).fill(0n),
     memory: { ...dataMemory },
     dataLabels: { ...dataLabels },
     pipeline: {
@@ -23,24 +23,24 @@ export function createCPU(program, options = {}) {
     },
     history: [],
     halted: false,
+    options: {
+      enableForwarding: options.enableForwarding ?? true,
+      enableBranchFlush: options.enableBranchFlush ?? true
+    }
   };
 }
 
-export function loadProgram(parsedProgram) {
+export function loadProgram(parsedProgram, options = {}) {
   if (Array.isArray(parsedProgram)) {
-    const cpu = createCPU(parsedProgram);
-    cpu.memory[15] = 20;
+    const cpu = createCPU(parsedProgram, options);
     return cpu;
   }
 
   const cpu = createCPU(parsedProgram.program ?? [], {
     dataLabels: parsedProgram.dataLabels ?? {},
     dataMemory: parsedProgram.dataMemory ?? {},
+    ...options
   });
-
-  if (Object.keys(cpu.dataLabels).length === 0 && cpu.memory[15] == null) {
-    cpu.memory[15] = 20;
-  }
 
   return cpu;
 }

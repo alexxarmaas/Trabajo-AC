@@ -13,6 +13,7 @@ const loadScenarioButton = document.getElementById("load-scenario-btn");
 const scenarioDescription = document.getElementById("scenario-description");
 const explanationPanel = document.getElementById("explanation-panel");
 const eventBadges = document.getElementById("event-badges");
+const signalsPanel = document.getElementById("signals-panel");
 const stageGrid = document.getElementById("stage-grid");
 const registersBody = document.getElementById("registers-body");
 const memoryBody = document.getElementById("memory-body");
@@ -24,6 +25,9 @@ const summaryNext = document.getElementById("summary-next");
 const summaryStatus = document.getElementById("summary-status");
 const summaryEvent = document.getElementById("summary-event");
 const summaryMemory = document.getElementById("summary-memory");
+
+const forwardingToggle = document.getElementById("forwarding-toggle");
+const flushToggle = document.getElementById("flush-toggle");
 
 const MAX_RUN_CYCLES = 100;
 const EMPTY_LABEL = "-";
@@ -39,7 +43,6 @@ function formatStallInstruction(text, highlighted) {
   if (!text || text === EMPTY_LABEL) {
     return EMPTY_LABEL;
   }
-
   return highlighted ? `! ${text}` : text;
 }
 
@@ -47,52 +50,20 @@ function normalizeTableText(text) {
   if (!text || text === "(empty)" || text === "(vacio)" || text === EMPTY_LABEL) {
     return EMPTY_LABEL;
   }
-
   return text;
 }
 
-function writesRegister(op) {
-  return ["add", "sub", "and", "or", "addi", "lw", "la"].includes(op);
-}
-
 function computeForwardingInfo(state) {
-  const idExInstruction = state.pipeline.ID_EX?.instruction;
-  if (!idExInstruction) {
-    return [];
-  }
+  const idExSignals = state.pipeline.ID_EX?.signals;
+  if (!idExSignals) return [];
 
   const messages = [];
-  const sources = [
-    { registerName: "operando A", index: idExInstruction.rs1 },
-    { registerName: "operando B", index: idExInstruction.rs2 },
-  ];
-
-  for (const source of sources) {
-    if (source.index == null || source.index === 0) {
-      continue;
-    }
-
-    const exMemInstruction = state.pipeline.EX_MEM?.instruction;
-    if (
-      exMemInstruction &&
-      writesRegister(exMemInstruction.op) &&
-      exMemInstruction.op !== "lw" &&
-      exMemInstruction.rd === source.index
-    ) {
-      messages.push(`Anticipacion hacia ${source.registerName} desde EX/MEM (${exMemInstruction.raw})`);
-      continue;
-    }
-
-    const memWbInstruction = state.pipeline.MEM_WB?.instruction;
-    if (
-      memWbInstruction &&
-      writesRegister(memWbInstruction.op) &&
-      memWbInstruction.rd === source.index
-    ) {
-      messages.push(`Anticipacion hacia ${source.registerName} desde MEM/WB (${memWbInstruction.raw})`);
-    }
+  if (idExSignals.ForwardA) {
+    messages.push(`Anticipacion hacia operando A`);
   }
-
+  if (idExSignals.ForwardB) {
+    messages.push(`Anticipacion hacia operando B`);
+  }
   return messages;
 }
 
@@ -105,8 +76,7 @@ function getLatestWrittenRegister() {
   if (!wbWrite) {
     return null;
   }
-
-  const match = wbWrite.match(/^x(\d+)\s*=/);
+  const match = wbWrite.match(/^x(\\d+)\\s*=/);
   return match ? Number(match[1]) : null;
 }
 
@@ -128,7 +98,7 @@ function getAutomaticExplanation() {
   }
 
   if (latestHistory.branchTaken) {
-    fragments.push(`El salto beq se ha tomado y el PC se redirige a ${latestHistory.branchTarget}.`);
+    fragments.push(`El salto se ha tomado y el PC se redirige a ${latestHistory.branchTarget}.`);
   }
 
   if (latestHistory.flush) {
@@ -190,10 +160,7 @@ function getLastRelevantEventText() {
 }
 
 function renderScenarioControls() {
-  if (!scenarioSelect) {
-    return;
-  }
-
+  if (!scenarioSelect) return;
   scenarioSelect.innerHTML = "";
 
   const manualOption = document.createElement("option");
@@ -212,15 +179,11 @@ function renderScenarioControls() {
 }
 
 function renderScenarioDescription() {
-  if (!scenarioDescription) {
-    return;
-  }
-
+  if (!scenarioDescription) return;
   if (!activeScenario) {
     scenarioDescription.textContent = "Modo libre: escribe o modifica tu propio programa ensamblador y ejecutalo paso a paso.";
     return;
   }
-
   scenarioDescription.textContent = activeScenario.description;
 }
 
@@ -269,6 +232,36 @@ function renderEvents() {
   });
 }
 
+function renderSignals() {
+  if (!signalsPanel) return;
+  signalsPanel.innerHTML = "";
+  if (!cpuState) return;
+
+  const exRegister = cpuState.pipeline.ID_EX;
+  const signals = exRegister?.signals || {
+    RegWrite: false, MemRead: false, MemWrite: false, Branch: false,
+    ForwardA: false, ForwardB: false, Stall: false, Flush: false
+  };
+
+  const createSignalBadge = (label, isActive) => {
+    return `<div style="display: flex; align-items: center; justify-content: space-between; background: ${isActive ? '#dcfce7' : '#f1f5f9'}; padding: 4px 8px; border-radius: 6px;">
+      <span>${label}</span>
+      <span style="font-weight: bold; color: ${isActive ? '#166534' : '#94a3b8'}">${isActive ? '1' : '0'}</span>
+    </div>`;
+  };
+
+  signalsPanel.innerHTML = `
+    ${createSignalBadge("RegWrite", signals.RegWrite)}
+    ${createSignalBadge("MemRead", signals.MemRead)}
+    ${createSignalBadge("MemWrite", signals.MemWrite)}
+    ${createSignalBadge("Branch", signals.Branch)}
+    ${createSignalBadge("ForwardA", signals.ForwardA)}
+    ${createSignalBadge("ForwardB", signals.ForwardB)}
+    ${createSignalBadge("Stall", signals.Stall)}
+    ${createSignalBadge("Flush", signals.Flush)}
+  `;
+}
+
 function createStageDetail(label, value) {
   return `<div class="stage-detail"><span class="stage-label">${label}</span><span class="stage-value">${value}</span></div>`;
 }
@@ -278,19 +271,19 @@ function buildStageCard(title, register, extraTags = []) {
   const details = [];
 
   if (register && "rs1Val" in register) {
-    details.push(createStageDetail("rs1", register.rs1Val));
+    details.push(createStageDetail("rs1", register.rs1Val.toString()));
   }
   if (register && "rs2Val" in register) {
-    details.push(createStageDetail("rs2", register.rs2Val));
+    details.push(createStageDetail("rs2", register.rs2Val.toString()));
   }
   if (register && "aluResult" in register) {
-    details.push(createStageDetail("ALU", register.aluResult));
+    details.push(createStageDetail("ALU", register.aluResult.toString()));
   }
   if (register && "memData" in register) {
-    details.push(createStageDetail("Dato MEM", register.memData));
+    details.push(createStageDetail("Dato MEM", register.memData.toString()));
   }
   if (register && "storeValue" in register) {
-    details.push(createStageDetail("Valor a guardar", register.storeValue));
+    details.push(createStageDetail("Valor a guardar", register.storeValue.toString()));
   }
 
   const latestHistory = getLatestHistoryEntry();
@@ -352,14 +345,14 @@ function renderRegisters() {
   cpuState.registers.forEach((value, index) => {
     const row = document.createElement("tr");
     const classes = [];
-    if (value !== 0) {
+    if (value !== 0n) {
       classes.push("row-active");
     }
     if (index === latestWrittenRegister) {
       classes.push("row-written");
     }
     row.className = classes.join(" ");
-    row.innerHTML = `<td>${getRegisterName(index)}</td><td>${value}</td>`;
+    row.innerHTML = `<td>${getRegisterName(index)}</td><td>${value.toString()}</td>`;
     registersBody.appendChild(row);
   });
 }
@@ -391,7 +384,7 @@ function renderSummary() {
   summaryNext.textContent = formatInstruction(nextInstruction);
   summaryStatus.textContent = cpuState.halted ? "Finalizado" : "Ejecutando";
   summaryEvent.textContent = getLastRelevantEventText();
-  summaryMemory.textContent = `${memoryCount} posicion(es) inicializadas`;
+  summaryMemory.textContent = `${memoryCount} byte(s)`;
 }
 
 function renderHistory() {
@@ -442,6 +435,7 @@ function render() {
   renderScenarioDescription();
   renderSummary();
   renderEvents();
+  renderSignals();
   renderPipeline();
   renderExplanation();
   renderRegisters();
@@ -473,28 +467,41 @@ function loadCurrentProgram(options = {}) {
     }
   }
 
-  cpuState = loadProgram(parsedProgram);
+  cpuState = loadProgram(parsedProgram, {
+    enableForwarding: forwardingToggle ? forwardingToggle.checked : true,
+    enableBranchFlush: flushToggle ? flushToggle.checked : true,
+  });
   render();
 }
 
 function resetCurrentProgram() {
-  const parsedProgram = parseProgram(programInput.value);
-  cpuState = loadProgram(parsedProgram);
-  render();
+  loadCurrentProgram({ preserveScenario: !!activeScenario });
 }
 
 function runCycles(limit) {
-  if (!cpuState) {
-    return;
-  }
-
+  if (!cpuState) return;
   let cycles = 0;
   while (!cpuState.halted && cycles < limit) {
     cpuState = stepCPU(cpuState);
     cycles += 1;
   }
-
   render();
+}
+
+if (forwardingToggle) {
+  forwardingToggle.addEventListener("change", (e) => {
+    if (cpuState) {
+      cpuState.options.enableForwarding = e.target.checked;
+    }
+  });
+}
+
+if (flushToggle) {
+  flushToggle.addEventListener("change", (e) => {
+    if (cpuState) {
+      cpuState.options.enableBranchFlush = e.target.checked;
+    }
+  });
 }
 
 loadButton.addEventListener("click", () => {
@@ -514,10 +521,7 @@ resetButton.addEventListener("click", () => {
 });
 
 stepButton.addEventListener("click", () => {
-  if (!cpuState) {
-    return;
-  }
-
+  if (!cpuState) return;
   cpuState = stepCPU(cpuState);
   render();
 });
@@ -539,7 +543,6 @@ if (loadScenarioButton) {
       render();
       return;
     }
-
     loadScenarioById(scenarioSelect.value);
   });
 }

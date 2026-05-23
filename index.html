@@ -445,6 +445,17 @@
 
         <textarea id="program-input"></textarea>
 
+        <div class="options" style="margin-top: 12px; display: flex; flex-direction: column; gap: 8px;">
+          <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+            <input type="checkbox" id="forwarding-toggle" checked /> 
+            <span>Habilitar Forwarding (Anticipación)</span>
+          </label>
+          <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+            <input type="checkbox" id="flush-toggle" checked /> 
+            <span>Habilitar Flush en Saltos (Control Hazards)</span>
+          </label>
+        </div>
+
         <div class="controls">
           <button id="load-btn">Cargar programa</button>
           <button id="reset-btn" class="button-secondary">Reiniciar</button>
@@ -479,12 +490,22 @@
           </div>
           <div class="summary-card">
             <span class="summary-card-label">Memoria inicializada</span>
-            <div id="summary-memory" class="summary-card-value">0 posicion(es)</div>
+            <div id="summary-memory" class="summary-card-value">0 byte(s)</div>
           </div>
         </div>
 
-        <h3>Eventos destacados</h3>
-        <div id="event-badges" class="event-list"></div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 18px;">
+          <div>
+            <h3>Eventos destacados</h3>
+            <div id="event-badges" class="event-list"></div>
+          </div>
+          <div>
+            <h3>Señales de Control (ID/EX)</h3>
+            <div id="signals-panel" style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 13px;">
+              <!-- Signals will be injected here -->
+            </div>
+          </div>
+        </div>
       </section>
     </section>
 
