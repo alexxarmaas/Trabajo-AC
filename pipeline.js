@@ -1,9 +1,17 @@
-function clonePipelineRegister(register) {
-  if (!register) return null;
+// ============================================================
+// pipeline.js  –  Lógica de segmentación RISC-V de 5 etapas
+// Soporta: forwarding EX/MEM y MEM/WB, load-use stall,
+// RAW stall sin forwarding, control hazards (beq/bne/jal/jalr)
+// con flush opcional, señales de control completas y
+// registro de historial por ciclo.
+// ============================================================
+
+function clonePipelineRegister(reg) {
+  if (!reg) return null;
   return {
-    ...register,
-    instruction: register.instruction ? { ...register.instruction } : null,
-    signals: register.signals ? { ...register.signals } : null,
+    ...reg,
+    instruction: reg.instruction ? { ...reg.instruction } : null,
+    signals: reg.signals ? { ...reg.signals } : null,
   };
 }
 
@@ -11,7 +19,7 @@ function cloneState(state) {
   return {
     pc: state.pc,
     cycle: state.cycle,
-    program: state.program.map((instruction) => ({ ...instruction })),
+    program: state.program.map((i) => ({ ...i })),
     instructionMemory: { ...state.instructionMemory },
     registers: [...state.registers],
     memory: { ...state.memory },
@@ -22,91 +30,108 @@ function cloneState(state) {
       EX_MEM: clonePipelineRegister(state.pipeline.EX_MEM),
       MEM_WB: clonePipelineRegister(state.pipeline.MEM_WB),
     },
-    history: state.history.map((entry) => ({ ...entry })),
+    history: state.history.map((e) => ({ ...e })),
     halted: state.halted,
     options: { ...state.options },
   };
 }
 
+// ── Clasificadores de instrucción ──────────────────────────
 function writesRegister(op) {
   return [
-    "add", "sub", "and", "or", "xor", "sll", "srl", "sra",
-    "mul", "div", "rem",
-    "addi", "andi", "ori", "xori",
-    "lw", "ld", "la", "lui", "auipc", "jal", "jalr"
+    "add","sub","and","or","xor","sll","srl","sra",
+    "mul","div","rem",
+    "addi","andi","ori","xori",
+    "lw","ld","la","lui","auipc","jal","jalr",
   ].includes(op);
 }
 
-function isLoad(op) {
-  return op === "lw" || op === "ld";
+function isLoad(op)   { return op === "lw" || op === "ld"; }
+function isStore(op)  { return op === "sw" || op === "sd"; }
+function isJump(op)   { return op === "jal" || op === "jalr"; }
+function isBranchOp(op) { return op === "beq" || op === "bne"; }
+function isControl(op) { return isBranchOp(op) || isJump(op); }
+
+// ── Valor de write-back ────────────────────────────────────
+function getWriteBackValue(reg) {
+  if (!reg) return 0n;
+  return isLoad(reg.instruction?.op) ? (reg.memData ?? 0n) : (reg.aluResult ?? 0n);
 }
 
-function isStore(op) {
-  return op === "sw" || op === "sd";
-}
-
-function isBranch(op) {
-  return op === "beq" || op === "bne" || op === "jal" || op === "jalr";
-}
-
-function getWriteBackValue(register) {
-  if (!register) return 0n;
-  if (isLoad(register.instruction?.op)) {
-    return register.memData ?? 0n;
-  }
-  return register.aluResult ?? 0n;
-}
-
-function getForwardedValue(sourceRegisterVal, currentState, registerIndex, stageLabel) {
-  if (!currentState.options.enableForwarding) {
-    return { value: sourceRegisterVal, forwardedFrom: null };
+// ── Forwarding ─────────────────────────────────────────────
+// Devuelve { value: BigInt, forwardedFrom: null|"EX/MEM"|"MEM/WB" }
+function getForwardedValue(sourceVal, state, regIdx) {
+  if (!state.options.enableForwarding || regIdx == null || regIdx === 0) {
+    return { value: sourceVal, forwardedFrom: null };
   }
 
-  if (registerIndex == null || registerIndex === 0) {
-    return { value: sourceRegisterVal, forwardedFrom: null };
-  }
-
-  const exMem = currentState.pipeline.EX_MEM;
-  if (exMem?.instruction && writesRegister(exMem.instruction.op) && !isLoad(exMem.instruction.op) && exMem.instruction.rd === registerIndex) {
+  const exMem = state.pipeline.EX_MEM;
+  if (
+    exMem?.instruction &&
+    writesRegister(exMem.instruction.op) &&
+    !isLoad(exMem.instruction.op) &&
+    exMem.instruction.rd === regIdx
+  ) {
     return { value: exMem.aluResult, forwardedFrom: "EX/MEM" };
   }
 
-  const memWb = currentState.pipeline.MEM_WB;
-  if (memWb?.instruction && writesRegister(memWb.instruction.op) && memWb.instruction.rd === registerIndex) {
+  const memWb = state.pipeline.MEM_WB;
+  if (
+    memWb?.instruction &&
+    writesRegister(memWb.instruction.op) &&
+    memWb.instruction.rd === regIdx
+  ) {
     return { value: getWriteBackValue(memWb), forwardedFrom: "MEM/WB" };
   }
 
-  return { value: sourceRegisterVal, forwardedFrom: null };
+  return { value: sourceVal, forwardedFrom: null };
 }
 
-function getInstructionAtPc(state, pc) {
-  return state.instructionMemory[pc] ?? null;
-}
-
-function formatInstruction(instruction) {
-  return instruction?.raw ?? "(empty)";
-}
-
-function usesRegister(instruction, registerIndex) {
-  if (!instruction || registerIndex == null || registerIndex === 0) return false;
-  switch (instruction.type) {
-    case "R":
-    case "B":
-    case "S":
-      return instruction.rs1 === registerIndex || instruction.rs2 === registerIndex;
+// ── Detección de uso de registro ───────────────────────────
+function usesRegister(instr, regIdx) {
+  if (!instr || regIdx == null || regIdx === 0) return false;
+  switch (instr.type) {
+    case "R": case "B": case "S":
+      return instr.rs1 === regIdx || instr.rs2 === regIdx;
     case "I":
-      if (instruction.op === "jalr") return instruction.rs1 === registerIndex;
-      return instruction.rs1 === registerIndex;
-    default:
-      return false;
+      return instr.rs1 === regIdx;
+    default: return false;
   }
 }
 
+// ── Detección de RAW genérico (sin forwarding) ─────────────
+// Retorna true si la instrucción de ID necesita un registro
+// que todavía no ha sido escrito en WB por alguna instrucción
+// anterior en el pipeline.
+function hasRawHazardNoForwarding(instrInId, state) {
+  if (!instrInId) return false;
+
+  // Instrucciones que están en vuelo y escribirán un registro
+  const pending = [
+    state.pipeline.ID_EX,
+    state.pipeline.EX_MEM,
+    state.pipeline.MEM_WB,
+  ];
+
+  for (const stage of pending) {
+    if (
+      stage?.instruction &&
+      writesRegister(stage.instruction.op) &&
+      stage.instruction.rd != null &&
+      stage.instruction.rd !== 0 &&
+      usesRegister(instrInId, stage.instruction.rd)
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+// ── Acceso a memoria byte a byte ───────────────────────────
 function readMemory(memory, address, size) {
   let val = 0n;
   for (let i = 0; i < size; i++) {
-    const byte = BigInt(memory[address + i] ?? 0);
-    val |= (byte << BigInt(i * 8));
+    val |= BigInt(memory[address + i] ?? 0) << BigInt(i * 8);
   }
   return val;
 }
@@ -120,234 +145,279 @@ function writeMemory(memory, address, size, value) {
 }
 
 function signExtend32(val) {
-  const isNegative = val & 0x80000000n;
-  if (isNegative) {
-    return val | 0xFFFFFFFF00000000n;
-  }
-  return val;
+  return (val & 0x80000000n) ? (val | 0xFFFFFFFF00000000n) : val;
 }
 
+function formatInstr(instr) { return instr?.raw ?? "(empty)"; }
+function getInstrAtPc(state, pc) { return state.instructionMemory[pc] ?? null; }
+
+// ══════════════════════════════════════════════════════════
+// stepPipeline  –  avanza un ciclo de reloj
+// ══════════════════════════════════════════════════════════
 export function stepPipeline(currentState) {
-  const nextState = cloneState(currentState);
+  const next = cloneState(currentState);
   const pcBefore = currentState.pc;
-  const fetchedInstruction = getInstructionAtPc(currentState, currentState.pc);
-  const ifInstr = formatInstruction(fetchedInstruction);
-  const idInstr = formatInstruction(currentState.pipeline.IF_ID?.instruction);
-  const exInstr = formatInstruction(currentState.pipeline.ID_EX?.instruction);
-  const memInstr = formatInstruction(currentState.pipeline.EX_MEM?.instruction);
-  const wbInstr = formatInstruction(currentState.pipeline.MEM_WB?.instruction);
-  nextState.cycle += 1;
 
-  let stall = false;
+  // Captura de texto de instrucciones actuales (para historial)
+  const ifInstr  = formatInstr(getInstrAtPc(currentState, currentState.pc));
+  const idInstr  = formatInstr(currentState.pipeline.IF_ID?.instruction);
+  const exInstr  = formatInstr(currentState.pipeline.ID_EX?.instruction);
+  const memInstr = formatInstr(currentState.pipeline.EX_MEM?.instruction);
+  const wbInstr  = formatInstr(currentState.pipeline.MEM_WB?.instruction);
+
+  next.cycle += 1;
+
+  // Variables de evento del ciclo
+  let stall       = false;
+  let stallReason = null;
   let branchTaken = false;
+  let jumpTaken   = false;
   let branchTarget = null;
-  let flush = false;
-  let wbWrite = null;
+  let flush       = false;
+  let wbWrite     = null;
+  let forwardA    = null;   // "EX/MEM" | "MEM/WB" | null
+  let forwardB    = null;
 
-  nextState.pipeline.IF_ID = null;
-  nextState.pipeline.ID_EX = null;
-  nextState.pipeline.EX_MEM = null;
-  nextState.pipeline.MEM_WB = null;
+  // Limpia registros del pipeline (se reasignan abajo)
+  next.pipeline.IF_ID  = null;
+  next.pipeline.ID_EX  = null;
+  next.pipeline.EX_MEM = null;
+  next.pipeline.MEM_WB = null;
 
-  // WB Stage
-  const wbRegister = currentState.pipeline.MEM_WB;
-  if (wbRegister?.instruction && writesRegister(wbRegister.instruction.op)) {
-    const rd = wbRegister.instruction.rd;
+  // ── WB Stage ──────────────────────────────────────────
+  const wbReg = currentState.pipeline.MEM_WB;
+  if (wbReg?.instruction && writesRegister(wbReg.instruction.op)) {
+    const rd = wbReg.instruction.rd;
     if (rd != null && rd !== 0) {
-      const value = getWriteBackValue(wbRegister);
-      nextState.registers[rd] = value;
-      wbWrite = `x${rd} = ${value}`;
+      const val = getWriteBackValue(wbReg);
+      next.registers[rd] = val;
+      wbWrite = `x${rd} = ${val}`;
     }
   }
-  nextState.registers[0] = 0n; // Ensure x0 is always 0n
+  next.registers[0] = 0n; // x0 siempre 0
 
-  // MEM Stage
-  const memRegister = currentState.pipeline.EX_MEM;
-  if (memRegister?.instruction) {
-    const instruction = memRegister.instruction;
-    const memWb = { ...memRegister, instruction: { ...instruction }, signals: { ...memRegister.signals } };
-    const addr = Number(memRegister.aluResult);
+  // ── MEM Stage ─────────────────────────────────────────
+  const memReg = currentState.pipeline.EX_MEM;
+  if (memReg?.instruction) {
+    const instr = memReg.instruction;
+    const memWb = { ...memReg, instruction: { ...instr }, signals: { ...memReg.signals } };
+    const addr  = Number(memReg.aluResult);
 
-    if (instruction.op === "lw") {
+    if (instr.op === "lw") {
+      // Carga 32 bits con extensión de signo a 64 bits
       memWb.memData = signExtend32(readMemory(currentState.memory, addr, 4));
-    } else if (instruction.op === "ld") {
-      memWb.memData = readMemory(currentState.memory, addr, 8);
-    } else if (instruction.op === "sw") {
-      writeMemory(nextState.memory, addr, 4, memRegister.storeValue);
-    } else if (instruction.op === "sd") {
-      writeMemory(nextState.memory, addr, 8, memRegister.storeValue);
+    } else if (instr.op === "ld") {
+      // Carga 64 bits con interpretación de signo
+      memWb.memData = BigInt.asIntN(64, readMemory(currentState.memory, addr, 8));
+    } else if (instr.op === "sw") {
+      writeMemory(next.memory, addr, 4, memReg.storeValue);
+    } else if (instr.op === "sd") {
+      writeMemory(next.memory, addr, 8, memReg.storeValue);
     }
 
-    nextState.pipeline.MEM_WB = memWb;
+    next.pipeline.MEM_WB = memWb;
   }
 
-  // EX Stage
-  const exRegister = currentState.pipeline.ID_EX;
-  if (exRegister?.instruction) {
-    const instruction = exRegister.instruction;
-    
-    const fwdA = getForwardedValue(exRegister.rs1Val, currentState, instruction.rs1, "A");
-    const fwdB = getForwardedValue(exRegister.rs2Val, currentState, instruction.rs2, "B");
-    
-    const operandA = fwdA.value;
-    const operandB = fwdB.value;
-    
+  // ── EX Stage ──────────────────────────────────────────
+  const exReg = currentState.pipeline.ID_EX;
+  if (exReg?.instruction) {
+    const instr = exReg.instruction;
+
+    const fwdA = getForwardedValue(exReg.rs1Val, currentState, instr.rs1);
+    const fwdB = getForwardedValue(exReg.rs2Val, currentState, instr.rs2);
+    forwardA   = fwdA.forwardedFrom;
+    forwardB   = fwdB.forwardedFrom;
+
+    const opA = fwdA.value;
+    const opB = fwdB.value;
+
     const exMem = {
-      instruction: { ...instruction },
-      aluResult: 0n,
-      storeValue: operandB,
-      rs2Val: operandB,
+      instruction: { ...instr },
+      aluResult:   0n,
+      storeValue:  opB,   // para sw/sd: dato a escribir (puede forwardearse)
+      rs2Val:      opB,
       signals: {
-        ...exRegister.signals,
-        ForwardA: fwdA.forwardedFrom !== null,
-        ForwardB: fwdB.forwardedFrom !== null
-      }
+        ...exReg.signals,
+        ForwardA: forwardA !== null,
+        ForwardB: forwardB !== null,
+      },
     };
 
-    const pcBig = BigInt(exRegister.pc);
+    const pcBig = BigInt(exReg.pc ?? 0);
+    const immBig = instr.imm != null ? BigInt(instr.imm) : 0n;
 
-    switch (instruction.op) {
-      case "add": exMem.aluResult = BigInt.asIntN(64, operandA + operandB); break;
-      case "sub": exMem.aluResult = BigInt.asIntN(64, operandA - operandB); break;
-      case "and": exMem.aluResult = BigInt.asIntN(64, operandA & operandB); break;
-      case "or":  exMem.aluResult = BigInt.asIntN(64, operandA | operandB); break;
-      case "xor": exMem.aluResult = BigInt.asIntN(64, operandA ^ operandB); break;
-      case "sll": exMem.aluResult = BigInt.asIntN(64, operandA << (operandB & 63n)); break;
-      case "srl": exMem.aluResult = BigInt.asIntN(64, BigInt.asUintN(64, operandA) >> (operandB & 63n)); break;
-      case "sra": exMem.aluResult = BigInt.asIntN(64, operandA >> (operandB & 63n)); break;
-      case "mul": exMem.aluResult = BigInt.asIntN(64, operandA * operandB); break;
-      case "div": exMem.aluResult = operandB !== 0n ? BigInt.asIntN(64, operandA / operandB) : -1n; break;
-      case "rem": exMem.aluResult = operandB !== 0n ? BigInt.asIntN(64, operandA % operandB) : operandA; break;
-      
-      case "addi": exMem.aluResult = BigInt.asIntN(64, operandA + BigInt(instruction.imm)); break;
-      case "andi": exMem.aluResult = BigInt.asIntN(64, operandA & BigInt(instruction.imm)); break;
-      case "ori":  exMem.aluResult = BigInt.asIntN(64, operandA | BigInt(instruction.imm)); break;
-      case "xori": exMem.aluResult = BigInt.asIntN(64, operandA ^ BigInt(instruction.imm)); break;
-      
-      case "lui":   exMem.aluResult = BigInt.asIntN(64, BigInt(instruction.imm) << 12n); break;
-      case "auipc": exMem.aluResult = BigInt.asIntN(64, pcBig + (BigInt(instruction.imm) << 12n)); break;
-      case "la":    exMem.aluResult = BigInt(currentState.dataLabels[instruction.label] ?? 0); break;
-      
+    switch (instr.op) {
+      // Aritmético-lógicas R-type
+      case "add":  exMem.aluResult = BigInt.asIntN(64, opA + opB); break;
+      case "sub":  exMem.aluResult = BigInt.asIntN(64, opA - opB); break;
+      case "and":  exMem.aluResult = BigInt.asIntN(64, opA & opB); break;
+      case "or":   exMem.aluResult = BigInt.asIntN(64, opA | opB); break;
+      case "xor":  exMem.aluResult = BigInt.asIntN(64, opA ^ opB); break;
+      case "sll":  exMem.aluResult = BigInt.asIntN(64, opA << (opB & 63n)); break;
+      case "srl":  exMem.aluResult = BigInt.asIntN(64, BigInt.asUintN(64, opA) >> (opB & 63n)); break;
+      case "sra":  exMem.aluResult = BigInt.asIntN(64, opA >> (opB & 63n)); break;
+      // Extensión M
+      case "mul":  exMem.aluResult = BigInt.asIntN(64, opA * opB); break;
+      case "div":  exMem.aluResult = opB !== 0n ? BigInt.asIntN(64, opA / opB) : -1n; break;
+      case "rem":  exMem.aluResult = opB !== 0n ? BigInt.asIntN(64, opA % opB) : opA; break;
+      // I-type ALU
+      case "addi": exMem.aluResult = BigInt.asIntN(64, opA + immBig); break;
+      case "andi": exMem.aluResult = BigInt.asIntN(64, opA & immBig); break;
+      case "ori":  exMem.aluResult = BigInt.asIntN(64, opA | immBig); break;
+      case "xori": exMem.aluResult = BigInt.asIntN(64, opA ^ immBig); break;
+      // U-type
+      case "lui":   exMem.aluResult = BigInt.asIntN(64, immBig << 12n); break;
+      case "auipc": exMem.aluResult = BigInt.asIntN(64, pcBig + (immBig << 12n)); break;
+      // Pseudo: la (load address)
+      case "la":    exMem.aluResult = BigInt(currentState.dataLabels[instr.label] ?? 0); break;
+      // Acceso a memoria: calcula dirección
       case "lw": case "ld":
       case "sw": case "sd":
-        exMem.aluResult = BigInt.asIntN(64, operandA + BigInt(instruction.imm));
+        exMem.aluResult = BigInt.asIntN(64, opA + immBig);
         break;
-        
+      // Saltos condicionales
       case "beq":
-        if (operandA === operandB) {
-          branchTaken = true;
-          branchTarget = Number(instruction.address) + Number(instruction.imm);
-        }
+        if (opA === opB) { branchTaken = true; branchTarget = Number(instr.address) + Number(immBig); }
         break;
       case "bne":
-        if (operandA !== operandB) {
-          branchTaken = true;
-          branchTarget = Number(instruction.address) + Number(instruction.imm);
-        }
+        if (opA !== opB) { branchTaken = true; branchTarget = Number(instr.address) + Number(immBig); }
         break;
+      // Saltos incondicionales
       case "jal":
-        exMem.aluResult = pcBig + 4n;
+        exMem.aluResult = pcBig + 4n;       // rd = PC+4
         branchTaken = true;
-        branchTarget = Number(instruction.address) + Number(instruction.imm);
+        jumpTaken   = true;
+        branchTarget = Number(instr.address) + Number(immBig);
         break;
       case "jalr":
-        exMem.aluResult = pcBig + 4n;
+        exMem.aluResult = pcBig + 4n;       // rd = PC+4
         branchTaken = true;
-        branchTarget = Number(BigInt.asIntN(64, operandA + BigInt(instruction.imm)) & ~1n);
+        jumpTaken   = true;
+        branchTarget = Number(BigInt.asIntN(64, opA + immBig) & ~1n);
         break;
-      default:
-        break;
+      default: break;
     }
 
-    if (!isBranch(instruction.op) || instruction.op === "jal" || instruction.op === "jalr") {
-      nextState.pipeline.EX_MEM = exMem;
+    // beq/bne no pasan a EX_MEM (no escriben rd ni acceden a memoria)
+    if (!isBranchOp(instr.op)) {
+      next.pipeline.EX_MEM = exMem;
     }
   }
 
-  // ID Stage
-  const idRegister = currentState.pipeline.IF_ID;
+  // ── ID Stage ──────────────────────────────────────────
+  const idReg = currentState.pipeline.IF_ID;
+
   if (branchTaken && currentState.options.enableBranchFlush) {
-    nextState.pipeline.ID_EX = null;
+    // Descarta lo que ya entró en IF e ID por el camino incorrecto
+    next.pipeline.ID_EX = null;
     flush = true;
-  } else if (idRegister?.instruction) {
-    const instruction = idRegister.instruction;
-    const pendingLoad = currentState.pipeline.ID_EX?.instruction;
-    
-    // Load-use stall detection
-    if (pendingLoad && isLoad(pendingLoad.op) && pendingLoad.rd != null && pendingLoad.rd !== 0 && usesRegister(instruction, pendingLoad.rd)) {
-      stall = true;
-      nextState.pipeline.ID_EX = null;
-      nextState.pipeline.IF_ID = clonePipelineRegister(currentState.pipeline.IF_ID);
+  } else if (idReg?.instruction) {
+    const instr      = idReg.instruction;
+    const pendingLD  = currentState.pipeline.ID_EX?.instruction;
+
+    // 1. Load-use hazard (necesario incluso con forwarding)
+    const loadUseHazard =
+      pendingLD && isLoad(pendingLD.op) &&
+      pendingLD.rd != null && pendingLD.rd !== 0 &&
+      usesRegister(instr, pendingLD.rd);
+
+    // 2. RAW hazard general cuando forwarding está desactivado
+    const rawHazard =
+      !currentState.options.enableForwarding &&
+      hasRawHazardNoForwarding(instr, currentState);
+
+    if (loadUseHazard) {
+      stall       = true;
+      stallReason = "load-use hazard";
+      next.pipeline.ID_EX = null;
+      next.pipeline.IF_ID = clonePipelineRegister(currentState.pipeline.IF_ID);
+    } else if (rawHazard) {
+      stall       = true;
+      stallReason = "RAW hazard without forwarding";
+      next.pipeline.ID_EX = null;
+      next.pipeline.IF_ID = clonePipelineRegister(currentState.pipeline.IF_ID);
     } else {
-      nextState.pipeline.ID_EX = {
-        instruction: { ...instruction },
-        pc: idRegister.pc,
-        rs1Val: instruction.rs1 != null ? nextState.registers[instruction.rs1] : 0n,
-        rs2Val: instruction.rs2 != null ? nextState.registers[instruction.rs2] : 0n,
+      next.pipeline.ID_EX = {
+        instruction: { ...instr },
+        pc:     idReg.pc,
+        rs1Val: instr.rs1 != null ? next.registers[instr.rs1] : 0n,
+        rs2Val: instr.rs2 != null ? next.registers[instr.rs2] : 0n,
         signals: {
-          RegWrite: writesRegister(instruction.op),
-          MemRead: isLoad(instruction.op),
-          MemWrite: isStore(instruction.op),
-          Branch: isBranch(instruction.op),
-          Stall: false,
-          Flush: false,
-        }
+          RegWrite:   writesRegister(instr.op),
+          MemRead:    isLoad(instr.op),
+          MemWrite:   isStore(instr.op),
+          MemToReg:   isLoad(instr.op),
+          Branch:     isBranchOp(instr.op),
+          Jump:       isJump(instr.op),
+          Stall:      false,
+          Flush:      false,
+          ForwardA:   false,
+          ForwardB:   false,
+        },
       };
     }
   }
 
-  // IF Stage
+  // ── IF Stage ──────────────────────────────────────────
   if (branchTaken) {
+    // El salto SIEMPRE actualiza el PC al destino
+    next.pc = branchTarget;
+
     if (currentState.options.enableBranchFlush) {
-      nextState.pipeline.IF_ID = null;
-      nextState.pc = branchTarget;
+      // Flush: descarta instrucción ya capturada
+      next.pipeline.IF_ID = null;
     } else {
-      // If flush disabled, we update PC but let fetched instructions continue (they are wrong)
-      nextState.pc = branchTarget;
-      // Also fetch instruction at new PC? No, PC updates now, will fetch at new PC next cycle.
-      const instruction = getInstructionAtPc(currentState, currentState.pc);
-      if (instruction) {
-        nextState.pipeline.IF_ID = { instruction: { ...instruction }, pc: currentState.pc };
-        nextState.pc = currentState.pc + 4;
-      } else {
-        nextState.pipeline.IF_ID = null;
-        nextState.pc = currentState.pc;
-      }
+      // Sin flush: el PC cambia pero la instrucción equivocada
+      // sigue en IF_ID (el estudiante puede ver el efecto).
+      // Nota: en el siguiente ciclo IF cargará desde branchTarget.
+      const wrongInstr = getInstrAtPc(currentState, currentState.pc);
+      next.pipeline.IF_ID = wrongInstr
+        ? { instruction: { ...wrongInstr }, pc: currentState.pc }
+        : null;
     }
   } else if (stall) {
-    nextState.pc = currentState.pc;
+    // Congela PC e IF/ID
+    next.pc = currentState.pc;
+    // IF_ID ya fue preservado en la sección ID si es stall
   } else {
-    const instruction = getInstructionAtPc(currentState, currentState.pc);
-    if (instruction) {
-      nextState.pipeline.IF_ID = { instruction: { ...instruction }, pc: currentState.pc };
-      nextState.pc = currentState.pc + 4;
+    // Flujo normal: captura la instrucción en PC actual
+    const instr = getInstrAtPc(currentState, currentState.pc);
+    if (instr) {
+      next.pipeline.IF_ID = { instruction: { ...instr }, pc: currentState.pc };
+      next.pc = currentState.pc + 4;
     } else {
-      nextState.pipeline.IF_ID = null;
-      nextState.pc = currentState.pc;
+      next.pipeline.IF_ID = null;
+      next.pc = currentState.pc;
     }
   }
 
-  const pipelineEmpty = !nextState.pipeline.IF_ID &&
-    !nextState.pipeline.ID_EX &&
-    !nextState.pipeline.EX_MEM &&
-    !nextState.pipeline.MEM_WB;
-  const noInstructionToFetch = getInstructionAtPc(nextState, nextState.pc) == null;
-  nextState.halted = pipelineEmpty && noInstructionToFetch;
-  nextState.history.push({
-    cycle: nextState.cycle,
+  // ── Halted ────────────────────────────────────────────
+  const pipelineEmpty =
+    !next.pipeline.IF_ID && !next.pipeline.ID_EX &&
+    !next.pipeline.EX_MEM && !next.pipeline.MEM_WB;
+  next.halted = pipelineEmpty && getInstrAtPc(next, next.pc) == null;
+
+  // ── Historial del ciclo ───────────────────────────────
+  next.history.push({
+    cycle: next.cycle,
     pcBefore,
-    pcAfter: nextState.pc,
-    ifInstr: stall || (branchTaken && currentState.options.enableBranchFlush) ? "(empty)" : ifInstr,
+    pcAfter: next.pc,
+    ifInstr: (stall || (branchTaken && currentState.options.enableBranchFlush))
+      ? "(empty)" : ifInstr,
     idInstr,
     exInstr,
     memInstr,
     wbInstr,
     stall,
+    stallReason,
     branchTaken,
+    jumpTaken,
     branchTarget,
     flush,
     wbWrite,
+    forwardA,
+    forwardB,
   });
 
-  return nextState;
+  return next;
 }
