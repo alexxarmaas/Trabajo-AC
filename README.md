@@ -20,7 +20,7 @@ Diseñado como herramienta de laboratorio para la asignatura de Arquitectura de 
 | Registros representados con `BigInt` | Array de 32 `BigInt`. Aritmética 64 bits real. | `cpu.js`, `pipeline.js` |
 | x0/zero inmutable | x0 forzado a `0n` en cada ciclo WB | `pipeline.js` |
 | Memoria direccionada byte a byte | Cada dirección es 1 byte. Lecturas/escrituras multi-byte explícitas. | `pipeline.js`, `parser.js` |
-| `.word` (4 bytes) y `.dword` (8 bytes) | Sección `.data` con `parseWordValues` y `parseDwordValues` | `parser.js` |
+| `.word` (4 bytes) y `.dword` (8 bytes) | Sección .data con parseWordValues para .word y .dword, almacenando 4 u 8 bytes según la directiva. | `parser.js` |
 | `lw`/`sw` (32 bits) y `ld`/`sd` (64 bits) | `lw` → signExtend32; `ld` → BigInt.asIntN(64); `sw`/`sd` little-endian | `pipeline.js` |
 | Forwarding EX/MEM y MEM/WB | Anticipación desde ambos registros hacia la entrada ALU en EX | `pipeline.js` |
 | Load-use hazard | 1 stall obligatorio cuando `lw`/`ld` es seguido de uso inmediato | `pipeline.js` |

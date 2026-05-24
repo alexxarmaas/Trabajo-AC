@@ -13,11 +13,13 @@ export const scenarios = [
     name: "RV64I: Pipeline básico",
     description:
       "Secuencia sin dependencias de datos ni de control. Observa cómo las instrucciones solapan etapas IF→ID→EX→MEM→WB de forma limpia.",
-    code: `li t0, 1
-li t1, 2
-li t2, 3
-add t3, t0, t1
-or  t4, t2, t0`,
+    code: `li   t0, 10
+li   t1, 25
+li   t2, 7
+li   t3, 3
+add  t4, t0, t1
+sub  t5, t2, t3
+xor  t6, t0, t2`,
     explanationSteps: [
       { cycle: 1, text: "La primera instrucción entra en IF. El resto del pipeline está vacío." },
       { cycle: 3, text: "Tres instrucciones en vuelo simultáneo. Esto es el solapamiento del pipeline." },
