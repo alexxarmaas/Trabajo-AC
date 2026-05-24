@@ -117,11 +117,11 @@ El pipeline se llena progresivamente. En ningún ciclo debe aparecer **Stall = S
 
 ## 8. Soluciones orientativas
 
-1. `add t4` entra en ID en el ciclo 5. rs1Val = 10 (t0) y rs2Val = 25 (t1), leídos del banco de registros. Como `li t0` y `li t1` completaron WB en los ciclos 5 y 6 respectivamente, los valores ya están actualizados en el banco de registros gracias al diseño del ciclo (WB escribe antes de que ID lea).
+1. `add t4` entra en ID en el ciclo 6. En ese ciclo, `li t0` ya ha completado WB en el ciclo anterior y `li t1` completa WB en ese mismo ciclo. Como el modelo del simulador escribe en WB antes de que ID lea el banco de registros, `add t4` lee correctamente `rs1Val = 10` (t0) y `rs2Val = 25` (t1), sin necesidad de forwarding.
 2. Con 7 instrucciones: 7 + 4 = **11 ciclos**.
 3. No. El simulador fuerza `x0 = 0n` en cada ciclo WB. Cualquier intento de escritura en x0 es ignorado.
-4. El "PC antes" indica la dirección de instrucción que se capturó en ese ciclo. En cada ciclo sin stall, el PC aumenta en 4 (una instrucción hacia adelante, usando el índice entero del simulador).
-5. **IF/ID**: almacena la instrucción recién capturada de la memoria de instrucciones. **ID/EX**: almacena la instrucción decodificada, los valores de rs1 y rs2 leídos del banco de registros, y las señales de control. **EX/MEM**: almacena el resultado de la ALU (`aluResult`) y el valor a guardar si es un store. **MEM/WB**: almacena el resultado final (de ALU o de memoria) listo para ser escrito en el registro destino.
-6. `RegWrite = 1` para todas las instrucciones que producen un resultado (R-type, I-type ALU, cargas). `MemRead = 1` solo para `lw` y `ld`.
-7. El resultado final es idéntico. Añadir `nop` entre las `li` y el `add` introduce 1 ciclo adicional por `nop`, alargando la ejecución total en 4 ciclos (un `nop` por cada instrucción de `nop` añadida), pero no afecta la corrección.
-8. Porque no hay dependencias RAW cercanas: cuando `add`, `sub` y `xor` leen sus operandos en ID, los registros fuente ya fueron escritos por WB en ciclos anteriores. No es necesario anticipar ningún dato desde registros inter-etapa.
+4. El "PC antes" indica la dirección de instrucción que se capturó en ese ciclo. En cada ciclo sin stall, el PC aumenta en 4, es decir, avanza a la siguiente instrucción del programa.
+5. **IF/ID**: almacena la instrucción recién capturada de la memoria de instrucciones. **ID/EX**: almacena la instrucción decodificada, los valores de rs1 y rs2 leídos del banco de registros, y las señales de control. **EX/MEM**: almacena el resultado de la ALU (`aluResult`) y el valor a guardar si es un store. **MEM/WB**: almacena el resultado final, procedente de la ALU o de memoria, listo para ser escrito en el registro destino.
+6. `RegWrite = 1` para todas las instrucciones que producen un resultado en un registro, como instrucciones R-type, I-type ALU y cargas. `MemRead = 1` solo se activa para instrucciones de carga (`lw` y `ld`).
+7. El resultado final es idéntico. Añadir `nop` entre las `li` y el `add` no cambia los valores calculados, pero aumenta la duración total en 1 ciclo por cada `nop` añadido.
+8. Porque no hay dependencias RAW cercanas que obliguen a usar anticipación. Cuando `add`, `sub` y `xor` leen sus operandos en ID, los registros fuente ya están disponibles en el banco de registros gracias a la separación introducida por las instrucciones `li` previas y al orden WB→ID usado por el simulador.

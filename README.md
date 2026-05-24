@@ -247,9 +247,8 @@ Casos cubiertos: forwarding sin stall, stalls RAW sin forwarding, load-use con 1
 
 ---
 
-## Autores / asignatura
+## Autor / asignatura
 
-- **Nombres**: _[completar]_
-- **Grupo**: _[completar]_
+- **Nombres**: _Alejandro Armas Trujillo_
 - **Asignatura**: Arquitectura de Computadores
-- **Curso**: _[completar]_
+
