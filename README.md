@@ -1,121 +1,255 @@
 # Trabajo AC - Simulador RISC-V segmentado
 
 ## Descripción
-Este repositorio contiene un simulador web educativo de un procesador RISC-V segmentado de 5 etapas (IF, ID, EX, MEM, WB). Está diseñado como una herramienta didáctica para comprender internamente el flujo de instrucciones y la resolución de riesgos (*hazards*) en arquitecturas pipeline modernas. El simulador se ejecuta por completo en el navegador mediante HTML, CSS y JavaScript puro, permitiendo visualizar el estado de las etapas, la memoria y los registros ciclo a ciclo.
+
+Simulador web educativo de un procesador RISC-V segmentado de 5 etapas (IF, ID, EX, MEM, WB). Permite ejecutar un **subconjunto educativo de RV64IM** ciclo a ciclo directamente en el navegador, observando el flujo de instrucciones a través de los registros inter-etapa (IF/ID, ID/EX, EX/MEM, MEM/WB), la anticipación de datos (*forwarding*), los riesgos de datos, los stalls, los vaciados (*flush*) del pipeline y las señales de control.
+
+Diseñado como herramienta de laboratorio para la asignatura de Arquitectura de Computadores.
+
+---
 
 ## Relación con el enunciado
 
-| Requisito del PDF | Cómo se cumple en el repositorio | Archivo(s) relacionados |
-| --- | --- | --- |
-| Simulador web ejecutable en navegador | Uso de HTML, CSS y JS modular (sin frameworks), sirviéndose con Node. | `index.html`, `main.js` |
-| Procesador segmentado de 5 etapas | Se modelan exactamente las etapas IF, ID, EX, MEM y WB, con avance ciclo a ciclo. | `pipeline.js`, `cpu.js` |
-| Subconjunto RV64IM de 64 bits | Uso interno de `BigInt` para garantizar ancho de 64 bits en ALU y registros. Operaciones M incluidas. | `pipeline.js`, `parser.js` |
-| Forwarding | Implementado desde EX/MEM y MEM/WB hacia EX. | `pipeline.js` |
-| Load-use hazard | Detección de uso inmediato tras carga, insertando un ciclo de stall (burbuja). | `pipeline.js` |
-| Stalls / burbujas | Anulación de instrucción en `IF_ID` y detención de PC al detectar riesgos no salvables. | `pipeline.js` |
-| Branch flush | Los saltos tomados anulan las instrucciones prematuramente cargadas en IF e ID. | `pipeline.js` |
-| Registros | Array de 32 elementos (usando `BigInt`), forzando `x0` siempre a 0. | `cpu.js`, `pipeline.js` |
-| Memoria | Direccionamiento byte a byte con soporte para escrituras de 4 bytes (`.word`, `sw`) y 8 bytes (`.dword`, `sd`). | `pipeline.js`, `parser.js` |
-| Historial por ciclos | Se registra cada ciclo documentando el flujo de PC, etapas y eventos (stalls, flush). | `main.js`, `pipeline.js` |
-| Escenarios docentes | Casos precargados para demostrar características clave del pipeline. | `scenarios.js` |
-| Servidor web local | Script simple en Node.js que sirve los archivos estáticos usando el módulo `http`. | `server.mjs`, `package.json` |
+| Requisito del PDF | Cómo se cumple | Archivo(s) |
+|---|---|---|
+| Simulador web ejecutable en navegador | HTML + JS modulares, sin frameworks externos | `index.html`, `main.js` |
+| Servidor web local con Node | Servidor Node.js mínimo usando módulo `http` | `server.mjs`, `package.json` |
+| Pipeline de 5 etapas (IF, ID, EX, MEM, WB) | Cada etapa implementada con lógica explícita | `pipeline.js` |
+| Registros inter-etapa (IF/ID, ID/EX, EX/MEM, MEM/WB) | Objetos JS con instrucción, valores, señales y resultado | `pipeline.js` |
+| Subconjunto educativo RV64IM de 64 bits | ALU y registros con `BigInt`. No cubre el estándar completo. | `parser.js`, `pipeline.js` |
+| Registros representados con `BigInt` | Array de 32 `BigInt`. Aritmética 64 bits real. | `cpu.js`, `pipeline.js` |
+| x0/zero inmutable | x0 forzado a `0n` en cada ciclo WB | `pipeline.js` |
+| Memoria direccionada byte a byte | Cada dirección es 1 byte. Lecturas/escrituras multi-byte explícitas. | `pipeline.js`, `parser.js` |
+| `.word` (4 bytes) y `.dword` (8 bytes) | Sección `.data` con `parseWordValues` y `parseDwordValues` | `parser.js` |
+| `lw`/`sw` (32 bits) y `ld`/`sd` (64 bits) | `lw` → signExtend32; `ld` → BigInt.asIntN(64); `sw`/`sd` little-endian | `pipeline.js` |
+| Forwarding EX/MEM y MEM/WB | Anticipación desde ambos registros hacia la entrada ALU en EX | `pipeline.js` |
+| Load-use hazard | 1 stall obligatorio cuando `lw`/`ld` es seguido de uso inmediato | `pipeline.js` |
+| RAW hazards sin forwarding | Con forwarding desactivado: stall por ID_EX o EX_MEM con dependencia | `pipeline.js` |
+| Store hazards | Store con dependencia ALU → forwarding; con dependencia load → stall | `pipeline.js` |
+| Branch/jump flush | `beq`, `bne`, `jal`, `jalr` evaluados en EX; flush de IF e ID si salto tomado | `pipeline.js` |
+| `jal` y `jalr` | `jal` salta a label+offset; `jalr` salta a `(rs1+imm) & ~1`; ambos escriben PC+4 en rd | `pipeline.js`, `parser.js` |
+| Historial por ciclos | Tabla: IF/ID/EX/MEM/WB, stall, stallReason, flush, branchTaken, jumpTaken, forwardA/B | `pipeline.js`, `main.js` |
+| Panel de señales | RegWrite, MemRead, MemWrite, MemToReg, Branch, Jump, ForwardA, ForwardB, Stall, Flush | `main.js`, `index.html` |
+| Escenarios docentes | 9 escenarios precargados con explicaciones por ciclo | `scenarios.js` |
+| Pruebas manuales | 12 pruebas con resultado esperado y observaciones | `test/manual-tests.md` |
+| Cuatro unidades didácticas | Guías completas de laboratorio en `docs/unidades/` | `docs/unidades/` |
+
+---
 
 ## Alcance de instrucciones soportadas
 
-Se modela un **subconjunto educativo** de la arquitectura RV64IM de 64 bits.
+> El proyecto implementa un **subconjunto educativo** de RV64IM, no el repertorio oficial completo.
 
-**RV64I (Instrucciones base):**
-- Aritméticas/Lógicas (R-type): `add`, `sub`, `and`, `or`, `xor`, `sll`, `srl`, `sra`
-- Aritméticas/Lógicas (I-type): `addi`, `andi`, `ori`, `xori`
-- Memoria de 32 bits: `lw`, `sw` (con extensión de signo en cargas)
-- Memoria de 64 bits: `ld`, `sd`
-- Control/Saltos: `beq`, `bne`, `jal`, `jalr`
-- Especiales: `lui`, `auipc`
+### RV64I
 
-**Extensión M (Multiplicación y División):**
-- `mul`, `div`, `rem`
+| Tipo | Instrucciones |
+|---|---|
+| R-type aritmético-lógico | `add`, `sub`, `and`, `or`, `xor`, `sll`, `srl`, `sra` |
+| I-type aritmético-lógico | `addi`, `andi`, `ori`, `xori` |
+| Cargas | `lw` (32 bits con signo), `ld` (64 bits con signo) |
+| Almacenes | `sw` (32 bits), `sd` (64 bits) |
+| Saltos condicionales | `beq`, `bne` |
+| Saltos incondicionales | `jal`, `jalr` |
+| U-type | `lui`, `auipc` |
 
-**Pseudoinstrucciones:**
-- `li` (Load Immediate)
-- `la` (Load Address)
-- `nop` (No Operation)
+### Extensión M
+
+| Instrucción | Operación |
+|---|---|
+| `mul` | Multiplicación entera 64 bits |
+| `div` | División entera 64 bits (con signo) |
+| `rem` | Resto 64 bits (con signo) |
+
+### Pseudoinstrucciones
+
+| Pseudoinstrucción | Expansión / Efecto |
+|---|---|
+| `li rd, imm` | `addi rd, x0, imm` |
+| `la rd, label` | Carga la dirección base del label en rd |
+| `nop` | `addi x0, x0, 0` |
+
+---
 
 ## Arquitectura del simulador
 
-- **`parser.js`**: Procesa el código fuente en lenguaje ensamblador, validando sintaxis, resolviendo etiquetas `.text` / `.data` y transformándolas en un array de estructuras listes para ejecución.
-- **`cpu.js`**: Encapsula el estado inicial del procesador (PC, Memoria, Registros, Historial) y provee la función `stepCPU()` para avanzar un ciclo.
-- **`pipeline.js`**: Contiene la lógica profunda del pipeline. Maneja la propagación de datos entre etapas, la lógica de la ALU en la etapa EX, la lectura/escritura de memoria en MEM, y la detección de riesgos (stalls, flushes, forwarding).
-- **`main.js`**: Controlador de la interfaz gráfica. Enlaza los eventos de los botones con el estado de la CPU (`cpu.js`) y renderiza dinámicamente las tablas (registros, historial, pipeline).
-- **`scenarios.js`**: Base de datos de programas ensamblador predefinidos, útiles para probar y visualizar conceptos de Arquitectura.
-- **`index.html`**: Estructura visual principal del simulador con diseño moderno y tablas de inspección.
-- **`server.mjs`**: Servidor de desarrollo ligero que permite abrir la app sin errores de CORS en el navegador.
+| Archivo | Responsabilidad |
+|---|---|
+| `index.html` | Estructura visual: editor, controles, tarjetas de etapas, panel de señales, tablas de registros/memoria/historial |
+| `main.js` | Controlador de la interfaz: enlaza eventos UI con el estado CPU y renderiza todos los paneles |
+| `parser.js` | Analiza el código ensamblador: valida sintaxis, resuelve etiquetas, convierte inmediatos a BigInt, gestiona `.data`/`.text`. Produce estructuras listas para ejecución. |
+| `cpu.js` | Estado inicial del procesador: PC, registros (BigInt), memoria, pipeline, historial y opciones de simulación |
+| `pipeline.js` | Lógica de segmentación: avanza un ciclo de reloj, aplica forwarding, detecta hazards (load-use, RAW, control), ejecuta ALU, accede a memoria y escribe WB |
+| `scenarios.js` | Base de datos de programas ensamblador precargados con explicaciones por ciclo |
+| `server.mjs` | Servidor Node.js que sirve los archivos estáticos en `http://localhost:3000` |
+| `test/manual-tests.md` | 12 programas de prueba con resultado esperado y observaciones |
+| `docs/unidades/` | Cuatro unidades didácticas completas para uso en laboratorio |
+
+---
 
 ## Modelo de pipeline
 
-El procesador utiliza un modelo clásico MIPS/RISC-V de 5 etapas:
-1. **IF (Instruction Fetch)**: Extrae la instrucción en curso según el PC actual.
-2. **ID (Instruction Decode)**: Decodifica la instrucción y obtiene los operandos (`rs1`, `rs2`). Detecta riesgos (ej. load-use hazard) para insertar Stalls y congelar IF/ID.
-3. **EX (Execute)**: La ALU computa operaciones aritméticas, direcciones de memoria o condiciones de salto. Se encarga del Forwarding para obtener datos actualizados, y detecta qué ramas (`beq`/`bne`/`jal`) se toman para activar un Flush en IF/ID si corresponde.
-4. **MEM (Memory Access)**: Realiza lecturas (`lw`, `ld`) o escrituras (`sw`, `sd`) en la memoria de datos (direccionamiento por bytes).
-5. **WB (Write Back)**: Guarda los resultados de la ALU o de Memoria en el banco de registros destino (`rd`), protegiendo siempre a `x0`.
+```
+   ┌───────┐   ┌───────┐   ┌───────┐   ┌───────┐   ┌───────┐
+   │  IF   │→  │  ID   │→  │  EX   │→  │  MEM  │→  │  WB   │
+   └───────┘   └───────┘   └───────┘   └───────┘   └───────┘
+        ↓            ↓           ↓            ↓
+     IF/ID        ID/EX       EX/MEM       MEM/WB
+```
 
-Se mantienen los registros intermedios (`IF_ID`, `ID_EX`, `EX_MEM`, `MEM_WB`) visibles en la interfaz.
+| Etapa | Función |
+|---|---|
+| **IF** | Captura la instrucción en PC. Almacena en IF/ID. Actualiza PC a PC+4 (salvo stall). |
+| **ID** | Decodifica la instrucción, lee rs1/rs2 del banco de registros. Detecta load-use/RAW para insertar stall. Genera señales de control en ID/EX. |
+| **EX** | La ALU ejecuta la operación. Se aplica forwarding desde EX/MEM y MEM/WB. Los saltos se evalúan aquí. Resultado en EX/MEM. |
+| **MEM** | Lee o escribe memoria de datos. El dato leído se almacena en MEM/WB. |
+| **WB** | Escribe el resultado (ALU o dato de memoria) en el registro destino (rd). x0 forzado a 0n. |
+
+Los **registros inter-etapa** (IF/ID, ID/EX, EX/MEM, MEM/WB) almacenan la instrucción en vuelo junto con los valores de operandos, señales de control y resultados intermedios.
+
+---
+
+## Señales de control visibles
+
+El panel de señales muestra el estado de las señales asociadas a la instrucción en ID/EX, completado con datos del historial para ForwardA/B, Stall y Flush:
+
+| Señal | Significado |
+|---|---|
+| `RegWrite` | La instrucción escribe un registro destino |
+| `MemRead` | La instrucción lee de memoria (`lw`, `ld`) |
+| `MemWrite` | La instrucción escribe en memoria (`sw`, `sd`) |
+| `MemToReg` | El valor de WB viene de memoria (activo en loads) |
+| `Branch` | Instrucción de salto condicional (`beq`, `bne`) |
+| `Jump` | Instrucción de salto incondicional (`jal`, `jalr`) |
+| `ForwardA` | Operando A fue anticipado (desde EX/MEM o MEM/WB) |
+| `ForwardB` | Operando B fue anticipado (desde EX/MEM o MEM/WB) |
+| `Stall` | El pipeline está detenido este ciclo por un hazard |
+| `Flush` | Las etapas IF e ID fueron vaciadas por un salto tomado |
+
+---
 
 ## Riesgos implementados
 
-- **RAW hazards (Read After Write)**: Detectados automáticamente.
-- **Forwarding (Anticipación)**: Desde `EX_MEM` y `MEM_WB` hacia la entrada de la ALU en la etapa `EX`. Evita bloqueos cuando una operación depende inmediatamente del resultado de una operación aritmética previa.
-- **Load-use hazard**: Cuando una instrucción aritmética/lógica o un Store necesita un dato que apenas se está cargando (`lw`/`ld`) en memoria, es imposible usar Forwarding. Se inserta un **Stall** de un ciclo.
-- **Store hazards**: Si el registro a guardar (`rs2` del store) tiene una dependencia, el forwarding lo resuelve, a menos que el origen sea un load, en cuyo caso ocurre el Stall.
-- **Control hazards con flush**: Las instrucciones de salto (`beq`, `bne`, `jal`, `jalr`) se evalúan en EX. Si el salto se toma, las instrucciones atrapadas en las etapas IF e ID (que fueron erróneamente precargadas) son anuladas inmediatamente insertando burbujas (**Flush**).
+### RAW hazards (Read After Write)
+Una instrucción lee un registro que una instrucción anterior aún no ha escrito.
+
+### Forwarding EX/MEM y MEM/WB
+Con forwarding activado, el resultado de la ALU (desde EX/MEM) o el dato de memoria (desde MEM/WB) se conecta directamente a la entrada de la ALU en EX, evitando la mayoría de stalls RAW.
+
+### Load-use hazard
+`lw`/`ld` seguido inmediatamente de una instrucción que usa el registro cargado. El dato solo existe al final de MEM, un ciclo demasiado tarde para anticipar. El simulador inserta **1 stall obligatorio** incluso con forwarding activado.
+
+### RAW hazards cuando forwarding está desactivado
+Con forwarding desactivado, se detectan dependencias contra ID_EX y EX_MEM. Si alguna instrucción en vuelo va a escribir un registro que ID necesita, se congela el pipeline hasta que WB completa la escritura.
+
+> **Nota de implementación:** MEM/WB no genera stall porque WB escribe en el banco de registros antes de que ID lo lea dentro del mismo modelo de ciclo.
+
+### Store hazards
+- Si el dato a guardar (`rs2` del store) depende de una instrucción aritmética anterior → forwarding lo resuelve.
+- Si depende de `lw`/`ld` inmediatamente anterior → stall load-use.
+
+### Control hazards con flush
+`beq`, `bne`, `jal`, `jalr` se resuelven en EX. Si el salto se toma, las instrucciones en IF e ID (camino incorrecto) se descartan mediante **flush** (2 ciclos de penalización). Si el salto no se toma, no hay penalización.
+
+La opción "Flush" puede desactivarse en la interfaz para observar el efecto de no descartar las instrucciones incorrectas.
+
+### Branch/jump handling
+- `beq`/`bne`: saltos condicionales. Si la condición se cumple → branchTaken, flush, PC = destino.
+- `jal`: salto incondicional a dirección de texto (label). Escribe PC+4 en rd.
+- `jalr`: salto incondicional a dirección dinámica `(rs1 + imm) & ~1`. Escribe PC+4 en rd.
+
+---
 
 ## Instalación y ejecución
 
-El repositorio incluye un pequeño servidor para evitar los bloqueos CORS de los módulos ES6 en navegadores modernos.
+```bash
+# Sin dependencias externas necesarias
+npm install
 
-1. Instalar las dependencias (si aplica):
-   ```bash
-   npm install
-   ```
-2. Iniciar el servidor local:
-   ```bash
-   npm start
-   ```
-3. Abrir el navegador en la siguiente dirección:
-   **http://localhost:3000**
+# Iniciar servidor local
+npm start
+```
+
+Abrir en el navegador: **http://localhost:3000**
+
+---
 
 ## Uso del simulador
 
-- **Cargar escenarios**: Selecciona un programa precargado desde el menú desplegable en la barra lateral y presiona "Cargar escenario". Esto escribirá el código de prueba automáticamente.
-- **Escribir código**: Puedes modificar el texto o crear tu propio ensamblador en el editor principal. Presiona **Cargar programa** para compilar e iniciar.
-- **Avanzar ciclos**: Usa el botón **Avanzar 1 ciclo** para ver paso a paso cómo recorren las etapas.
-- **Ejecutar**: El botón **Ejecutar** avanza múltiples ciclos para agilizar la prueba.
-- **Opciones interactivas**: Desactiva el *Forwarding* o el *Flush* en las casillas marcadas para observar cómo el simulador pierde el beneficio de estas técnicas de mitigación de riesgos.
-- **Inspección visual**: Monitoriza la tabla de Señales de control, Registros, Memoria e Historial.
+| Acción | Descripción |
+|---|---|
+| **Cargar escenario** | Seleccionar del menú desplegable y pulsar "Cargar escenario" |
+| **Escribir código** | Editar en el cuadro de texto. Soporte para `#` comentarios, `.data`/`.text`, `.word`, `.dword` |
+| **Cargar programa** | Compila e inicializa la CPU |
+| **Avanzar 1 ciclo** | Observa paso a paso el avance por las etapas |
+| **Ejecutar hasta el final** | Completa la ejecución (límite de 2000 ciclos) |
+| **Activar/desactivar Forwarding** | Cambia si se aplica anticipación de datos |
+| **Activar/desactivar Flush** | Cambia si se descartan instrucciones incorrectas tras salto |
+| **Registros** | Tabla con los 32 registros y sus valores BigInt |
+| **Memoria** | Tabla byte a byte con dirección y valor en hex y decimal |
+| **Historial** | Tabla completa por ciclo: etapas, stall, flush, branch, wbWrite |
+| **Panel de señales** | 10 señales de control del ciclo actual |
+
+> **Nota:** La memoria se visualiza **byte a byte** porque la arquitectura usa direccionamiento por bytes. Un `.word` genera 4 filas y un `.dword` genera 8 filas.
+
+---
 
 ## Escenarios docentes incluidos
 
-En el simulador podrás cargar los siguientes programas (`scenarios.js`):
-1. **RV64I: Pipeline básico**: Concepto de llenado y solapamiento del cauce (pipeline).
-2. **RV64I: Anticipación aritmética**: Ejecución seguida con dependencia de datos que se resuelve sin burbujas gracias al forwarding.
-3. **RV64I: Riesgo Load-Use (lw)**: Muestra una carga (Load) seguida por un uso de registro, forzando la creación de un Stall en IF e ID.
-4. **RV64I: Store con dependencia de datos (sd)**: Verifica que un store también detiene su ciclo o aplica forwarding correctamente en instrucciones 64-bit.
-5. **RV64I: Control Hazard (Branch Flush)**: Demostración de descarte de instrucciones incorrectamente capturadas tras un salto ejecutado.
-6. **Extensión M: mul, div, rem**: Para validar el funcionamiento correcto de las multiplicaciones y divisiones a 64-bit del set extendido.
+| # | Nombre | Concepto |
+|---|---|---|
+| 1 | RV64I: Pipeline básico | Solapamiento de etapas sin hazards |
+| 2 | RV64I: Anticipación aritmética | Forwarding EX/MEM y MEM/WB |
+| 3 | RV64I: Riesgo Load-Use (lw) | Stall load-use obligatorio |
+| 4 | RV64I: Store con dependencia de datos (sd) | Forwarding para stores, ld 64 bits |
+| 5 | RV64I: Control Hazard – Branch Flush | Salto condicional tomado y flush |
+| 6 | RV64I: Branch no tomado | Ausencia de penalización sin salto |
+| 7 | RV64I: jal | Salto incondicional, registro de retorno |
+| 8 | RV64I: jalr | Salto a dirección dinámica |
+| 9 | Extensión M: mul, div, rem | Multiplicación y división de 64 bits |
 
-## Pruebas/manual tests
+---
 
-Se ha proporcionado un documento en `test/manual-tests.md` que incluye recortes de código probados e instrucciones explícitas para validación manual del Forwarding, Stalls, operaciones M y el uso de registros de 64 bits (`.dword`, `ld`, `sd`). Puede ser utilizado para corroborar la corrección del proyecto por parte del profesorado.
+## Unidades didácticas
+
+Guías de laboratorio diseñadas para sesiones de 2–4 horas. Cada unidad incluye: introducción, objetivos operativos, código de partida, configuración del simulador, pasos de interacción, tabla de observaciones, ejercicios de autoevaluación y soluciones orientativas.
+
+| Unidad | Título | Enlace |
+|---|---|---|
+| 1 | Codificación/ejecución básica RV64I | [unidad-1-codificacion-rv64i.md](docs/unidades/unidad-1-codificacion-rv64i.md) |
+| 2 | Forwarding / anticipación de datos | [unidad-2-forwarding.md](docs/unidades/unidad-2-forwarding.md) |
+| 3 | Load-use hazard y stalls | [unidad-3-load-use-stalls.md](docs/unidades/unidad-3-load-use-stalls.md) |
+| 4 | Riesgos de control y flush | [unidad-4-control-hazards.md](docs/unidades/unidad-4-control-hazards.md) |
+
+---
+
+## Pruebas / manual tests
+
+El archivo [`test/manual-tests.md`](test/manual-tests.md) contiene 12 pruebas manuales con:
+- Código ensamblador listo para copiar.
+- Configuración de toggles (Forwarding, Flush).
+- Resultado esperado de registros y memoria.
+- Qué observar en historial y panel de señales.
+
+Casos cubiertos: forwarding sin stall, stalls RAW sin forwarding, load-use con 1 stall, store con dependencia ALU, store con dependencia load, branch tomado/no tomado, jal, jalr, mul/div/rem, ld/sd con .dword, x0 inmutable.
+
+---
 
 ## Limitaciones conocidas
 
-- **Simulador educativo**: Este proyecto es una herramienta puramente didáctica y *no* es un emulador RISC-V completo destinado a ser utilizado en producción o compilación nativa avanzada.
-- **Repertorio**: No cubre el 100% de las instrucciones oficiales RV64IM, sólo implementa el subconjunto representativo mencionado.
-- **Cachés/Memoria**: No modela latencias complejas de lectura a memoria (siempre 1 ciclo), fallos de caché o jerarquía de memoria física real.
-- **Predicción de saltos**: No implementa un Branch Target Buffer (BTB) ni esquemas avanzados de predicción de saltos estática o dinámica (por defecto, los saltos son predichos como "no tomados").
-- **Excepciones**: No incluye manejadores CSR ni trap/interrupts.
+- **Simulador educativo**: no es un emulador RISC-V completo ni apto para producción.
+- **Repertorio parcial**: implementa un subconjunto representativo de RV64IM, no el estándar oficial completo.
+- **Extensión M simplificada**: `mul`, `div`, `rem` tienen latencia de 1 ciclo en EX. En hardware real pueden tardar múltiples ciclos.
+- **Sin caché**: no modela latencias de caché ni jerarquía de memoria. Toda lectura/escritura toma 1 ciclo.
+- **Sin predicción avanzada de saltos**: el modelo asume "salto no tomado"; si se toma, se descarta con 2 ciclos de penalización.
+- **Sin CSR, excepciones ni interrupciones**.
+- **Sin instrucciones de punto flotante** (extensiones F/D).
+- **Memoria visualizada byte a byte**: un `.dword` aparece como 8 filas en la tabla de memoria.
+
+---
 
 ## Autores / asignatura
-- **Nombres**: [Espacio para completar nombres de alumnos]
-- **Grupo**: [Espacio para grupo]
+
+- **Nombres**: _[completar]_
+- **Grupo**: _[completar]_
 - **Asignatura**: Arquitectura de Computadores
+- **Curso**: _[completar]_

@@ -103,14 +103,16 @@ function usesRegister(instr, regIdx) {
 // Retorna true si la instrucción de ID necesita un registro
 // que todavía no ha sido escrito en WB por alguna instrucción
 // anterior en el pipeline.
+// NOTA: MEM/WB no bloquea porque WB escribe antes de la
+// lectura de registros en ID dentro del modelo de ciclo usado.
+// Solo ID/EX y EX/MEM pueden causar stall RAW sin forwarding.
 function hasRawHazardNoForwarding(instrInId, state) {
   if (!instrInId) return false;
 
-  // Instrucciones que están en vuelo y escribirán un registro
   const pending = [
     state.pipeline.ID_EX,
     state.pipeline.EX_MEM,
-    state.pipeline.MEM_WB,
+    // MEM/WB excluido: WB escribe en next.registers antes de que ID lea
   ];
 
   for (const stage of pending) {

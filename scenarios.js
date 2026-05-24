@@ -131,27 +131,50 @@ addi t3, t1, 200`,
   },
 
   // ──────────────────────────────────────────────────────────
-  // 7. jal (salto incondicional y link)
+  // 7. jal – salto incondicional y link
   // ──────────────────────────────────────────────────────────
   {
     id: "jal-example",
-    name: "RV64I: jal / jalr",
+    name: "RV64I: jal",
     description:
-      "jal escribe PC+4 en rd (dirección de retorno) y salta al destino. jalr salta a (rs1+imm). Observa el flush y la escritura en ra/rd.",
+      "jal escribe PC+4 en rd (dirección de retorno) y salta al destino. Observa el flush y la escritura en ra.",
     code: `li a0, 42
-jal ra, myfunc
+jal ra, func
 addi a1, zero, 99
-myfunc:
+func:
 add a2, a0, a0`,
     explanationSteps: [
-      { cycle: 3, text: "jal llega a EX. Escribe PC+4 en ra (dirección de retorno) y salta a myfunc." },
+      { cycle: 3, text: "jal llega a EX. Escribe PC+4 en ra (dirección de retorno) y salta a func." },
       { cycle: 4, text: "Con flush activado, addi a1 (instrucción del camino incorrecto) se descarta." },
       { cycle: 5, text: "add a2 se ejecuta. Resultado: a2 = 84." },
     ],
   },
 
   // ──────────────────────────────────────────────────────────
-  // 8. Extensión M
+  // 8. jalr – salto a dirección dinámica
+  // ──────────────────────────────────────────────────────────
+  {
+    id: "jalr-example",
+    name: "RV64I: jalr",
+    description:
+      "jalr salta a la dirección almacenada en un registro (rs1 + imm). Permite saltos a direcciones calculadas en tiempo de ejecución. Observa cómo ra recibe PC+4 y se descartan las instrucciones del camino incorrecto.",
+    code: `li t0, 16
+jalr ra, 0(t0)
+addi t1, zero, 99
+nop
+addi t2, zero, 7
+addi t3, zero, 8`,
+    explanationSteps: [
+      { cycle: 2, text: "jalr entra en ID. t0 = 16 (dirección de destino). ra recibirá PC+4 = 8." },
+      { cycle: 3, text: "jalr llega a EX. Calcula destino: (t0 + 0) & ~1 = 16. Escribe PC+4 en ra." },
+      { cycle: 4, text: "Con flush activado, addi t1 (camino incorrecto) se descarta." },
+      { cycle: 5, text: "El pipeline captura addi t2 desde la dirección 16. t2 = 7." },
+      { cycle: 6, text: "addi t3 se ejecuta. t3 = 8. Ejecución finalizada correctamente." },
+    ],
+  },
+
+  // ──────────────────────────────────────────────────────────
+  // 9. Extensión M
   // ──────────────────────────────────────────────────────────
   {
     id: "m-extension",

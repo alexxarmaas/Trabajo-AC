@@ -2,9 +2,9 @@
 
 ## 1. Introducción
 
-Esta unidad presenta el funcionamiento básico del pipeline de 5 etapas (IF, ID, EX, MEM, WB) usando instrucciones simples de la arquitectura RV64I: carga de inmediatos, operaciones aritméticas y lógicas. El objetivo es familiarizarse con el flujo de instrucciones ciclo a ciclo sin la distracción de riesgos complejos.
+Esta unidad presenta el funcionamiento básico del pipeline de 5 etapas (IF, ID, EX, MEM, WB) usando instrucciones simples de la arquitectura RV64I: carga de inmediatos (`li`), operaciones aritméticas (`add`, `sub`, `xor`) y lógicas. El código se ha diseñado deliberadamente para **no tener dependencias RAW cercanas** entre instrucciones consecutivas, de modo que el pipeline funcione sin stalls ni forwarding activo. El objetivo es entender el flujo de instrucciones ciclo a ciclo en condiciones ideales.
 
-Los registros son de 64 bits y se representan internamente con `BigInt` en JavaScript. El banco de registros contiene 32 registros (x0–x31); x0/zero está cableado a cero y nunca puede modificarse.
+Los registros son de 64 bits y se representan internamente con `BigInt`. El banco de registros contiene 32 registros (x0–x31); x0/zero está cableado a cero y nunca puede modificarse.
 
 ---
 
@@ -15,7 +15,7 @@ Al finalizar esta unidad el estudiante debe ser capaz de:
 1. Describir las cinco etapas del pipeline y qué ocurre en cada una.
 2. Explicar qué información contiene cada registro inter-etapa (IF/ID, ID/EX, EX/MEM, MEM/WB).
 3. Interpretar el historial por ciclos e identificar qué instrucción está en cada etapa.
-4. Calcular el ciclo en que termina una secuencia de instrucciones sin hazards.
+4. Calcular el número total de ciclos para N instrucciones en un pipeline de 5 etapas sin stalls: **N + 4 ciclos**.
 5. Verificar que x0/zero permanece siempre a 0 incluso si se intenta escribirlo.
 6. Identificar el valor de PC antes y después de ejecutar cada instrucción.
 
@@ -28,12 +28,14 @@ Copia el siguiente programa en el simulador:
 ```assembly
 li   t0, 10        # t0 = 10
 li   t1, 25        # t1 = 25
-add  t2, t0, t1    # t2 = t0 + t1 = 35
-sub  t3, t2, t0    # t3 = t2 - t0 = 25
-and  t4, t2, t1    # t4 = 35 & 25 = 1 (0b00100011 & 0b00011001 = 0b00000001)
-or   t5, t0, t1    # t5 = 10 | 25 = 27
-xor  t6, t0, t1    # t6 = 10 ^ 25 = 19
+li   t2, 7         # t2 = 7
+li   t3, 3         # t3 = 3
+add  t4, t0, t1    # t4 = t0 + t1 = 35
+sub  t5, t2, t3    # t5 = t2 - t3 = 4
+xor  t6, t0, t2    # t6 = t0 ^ t2 = 13
 ```
+
+> **Nota:** Las instrucciones `li` cargan valores independientes. `add`, `sub` y `xor` usan registros ya listos al menos 3 ciclos antes, por lo que no se generan dependencias RAW que requieran forwarding ni stalls.
 
 ---
 
@@ -41,11 +43,9 @@ xor  t6, t0, t1    # t6 = 10 ^ 25 = 19
 
 | Parámetro | Valor |
 |---|---|
-| Forwarding | **Activado** |
-| Flush (Branch) | **Activado** |
+| Forwarding | **Activado** (no influye en esta práctica) |
+| Flush (Branch) | **Activado** (no influye en esta práctica) |
 | Escenario relacionado | *RV64I: Pipeline básico* |
-
-> **Nota:** Con forwarding activado, estas instrucciones no generan stalls, lo que permite ver el pipeline limpio.
 
 ---
 
@@ -64,19 +64,29 @@ xor  t6, t0, t1    # t6 = 10 ^ 25 = 19
 7. En la tabla de **Registros**, verifica que t0 = 10.
 8. Avanza hasta el final con **Ejecutar hasta el final**.
 9. Verifica los valores finales en la tabla de Registros.
-10. Abre el **Historial por ciclos** y observa columnas: IF, ID, EX, MEM, WB.
+10. Abre el **Historial por ciclos** y observa las columnas IF, ID, EX, MEM, WB.
 
 ---
 
 ## 6. Qué debe observar el estudiante
 
+El pipeline se llena progresivamente. En ningún ciclo debe aparecer **Stall = Sí** ni ningún badge de Anticipación.
+
 | Ciclo | IF | ID | EX | MEM | WB | Evento |
 |---|---|---|---|---|---|---|
 | 1 | li t0,10 | – | – | – | – | Primera captura |
-| 2 | li t1,25 | li t0,10 | – | – | – | Solapamiento |
-| 3 | add … | li t1,25 | li t0,10 | – | – | 3 instrucciones en vuelo |
-| 5 | xor … | or … | and … | sub … | add … | Pipeline lleno |
-| 9 | – | – | – | – | xor … | Última instrucción en WB |
+| 2 | li t1,25 | li t0,10 | – | – | – | 2 instrucciones en vuelo |
+| 3 | li t2,7 | li t1,25 | li t0,10 | – | – | 3 en vuelo |
+| 4 | li t3,3 | li t2,7 | li t1,25 | li t0,10 | – | 4 en vuelo |
+| 5 | add t4 | li t3,3 | li t2,7 | li t1,25 | li t0,10 | Pipeline lleno – WB escribe t0 |
+| 6 | sub t5 | add t4 | li t3,3 | li t2,7 | li t1,25 | WB escribe t1 |
+| 7 | xor t6 | sub t5 | add t4 | li t3,3 | li t2,7 | WB escribe t2 |
+| 8 | – | xor t6 | sub t5 | add t4 | li t3,3 | WB escribe t3 |
+| 9 | – | – | xor t6 | sub t5 | add t4 | WB escribe t4 = 35 |
+| 10 | – | – | – | xor t6 | sub t5 | WB escribe t5 = 4 |
+| 11 | – | – | – | – | xor t6 | WB escribe t6 = 13 |
+
+**Fórmula general:** N instrucciones en pipeline ideal de 5 etapas → **N + 4 ciclos**. Con 7 instrucciones: 7 + 4 = **11 ciclos**.
 
 **Valores finales esperados:**
 
@@ -84,32 +94,34 @@ xor  t6, t0, t1    # t6 = 10 ^ 25 = 19
 |---|---|
 | t0 | 10 |
 | t1 | 25 |
-| t2 | 35 |
-| t3 | 25 |
-| t4 | 1 |
-| t5 | 27 |
-| t6 | 19 |
+| t2 | 7 |
+| t3 | 3 |
+| t4 | 35 |
+| t5 | 4 |
+| t6 | 13 |
 
 ---
 
 ## 7. Ejercicios de autoevaluación
 
-1. ¿En qué ciclo entra `add t2, t0, t1` a la etapa ID? ¿Qué valores tienen rs1Val y rs2Val en el registro ID/EX?
-2. ¿Cuántos ciclos tarda en completarse la secuencia completa de 7 instrucciones (desde ciclo 1 hasta que WB procesa la última)?
+1. ¿En qué ciclo entra `add t4, t0, t1` a la etapa ID? ¿Qué valores tienen rs1Val y rs2Val en el registro ID/EX?
+2. ¿Cuántos ciclos tarda en completarse la secuencia completa de 7 instrucciones? Aplica la fórmula N + 4.
 3. Si añadieras `addi x0, t0, 1` al final, ¿cambiaría el valor de x0? Justifica tu respuesta.
 4. ¿Qué diferencia hay entre el valor de PC en el historial ("PC antes") y la instrucción que aparece en IF ese ciclo?
 5. Describe la función de cada registro inter-etapa: IF/ID, ID/EX, EX/MEM, MEM/WB.
-6. ¿Qué señal de control `RegWrite` debería estar activa para `add t2, t0, t1`? ¿Cuándo se activa `MemRead`?
-7. Repite el programa añadiendo `nop` entre `add` y `sub`. ¿Cambia el resultado? ¿Cambia el número de ciclos?
+6. ¿Qué señal de control `RegWrite` debería estar activa para `add t4, t0, t1`? ¿Cuándo se activa `MemRead`?
+7. Repite el programa añadiendo `nop` entre las cuatro `li` y el `add`. ¿Cambia el resultado final? ¿Cambia el número de ciclos?
+8. ¿Por qué en este programa no aparece ningún badge de "Anticipación" (Forwarding) en el historial?
 
 ---
 
 ## 8. Soluciones orientativas
 
-1. `add` entra en ID en el ciclo 3. rs1Val = 10 (t0) y rs2Val = 25 (t1), leídos del banco de registros al inicio del ciclo 3.
-2. La última instrucción (`xor`) entra en IF en el ciclo 7 y llega a WB en el ciclo 11, por lo que el total es **11 ciclos** (7 instrucciones + 4 ciclos de llenado/vaciado).
-3. No. El simulador fuerza `x0 = 0n` en cada ciclo WB. Cualquier escritura en x0 es ignorada.
-4. El "PC antes" indica la dirección de instrucción que se estaba capturando en ese ciclo. En el ciclo siguiente, el PC ya apunta a la siguiente instrucción (PC + 4 en formato simulado).
-5. IF/ID almacena la instrucción recién capturada. ID/EX almacena la instrucción decodificada y los valores de registros. EX/MEM almacena el resultado de la ALU y el valor a guardar (para stores). MEM/WB almacena el resultado final (ALU o dato de memoria) listo para escribirse en registro.
-6. `RegWrite = 1` para todas las aritméticas/lógicas. `MemRead = 1` solo para `lw` y `ld`.
-7. El resultado es idéntico. Añadir `nop` introduce 1 ciclo adicional por instrucción, alargando la ejecución total en 1 ciclo (no hay hazards que resolver).
+1. `add t4` entra en ID en el ciclo 5. rs1Val = 10 (t0) y rs2Val = 25 (t1), leídos del banco de registros. Como `li t0` y `li t1` completaron WB en los ciclos 5 y 6 respectivamente, los valores ya están actualizados en el banco de registros gracias al diseño del ciclo (WB escribe antes de que ID lea).
+2. Con 7 instrucciones: 7 + 4 = **11 ciclos**.
+3. No. El simulador fuerza `x0 = 0n` en cada ciclo WB. Cualquier intento de escritura en x0 es ignorado.
+4. El "PC antes" indica la dirección de instrucción que se capturó en ese ciclo. En cada ciclo sin stall, el PC aumenta en 4 (una instrucción hacia adelante, usando el índice entero del simulador).
+5. **IF/ID**: almacena la instrucción recién capturada de la memoria de instrucciones. **ID/EX**: almacena la instrucción decodificada, los valores de rs1 y rs2 leídos del banco de registros, y las señales de control. **EX/MEM**: almacena el resultado de la ALU (`aluResult`) y el valor a guardar si es un store. **MEM/WB**: almacena el resultado final (de ALU o de memoria) listo para ser escrito en el registro destino.
+6. `RegWrite = 1` para todas las instrucciones que producen un resultado (R-type, I-type ALU, cargas). `MemRead = 1` solo para `lw` y `ld`.
+7. El resultado final es idéntico. Añadir `nop` entre las `li` y el `add` introduce 1 ciclo adicional por `nop`, alargando la ejecución total en 4 ciclos (un `nop` por cada instrucción de `nop` añadida), pero no afecta la corrección.
+8. Porque no hay dependencias RAW cercanas: cuando `add`, `sub` y `xor` leen sus operandos en ID, los registros fuente ya fueron escritos por WB en ciclos anteriores. No es necesario anticipar ningún dato desde registros inter-etapa.
